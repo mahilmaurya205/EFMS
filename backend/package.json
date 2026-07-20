@@ -8,6 +8,7 @@
     "build": "node ../node_modules/typescript/bin/tsc",
     "start": "node dist/server.js",
     "seed": "node --import tsx src/seed.ts"
+    ,"backup": "node --import tsx src/backup.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

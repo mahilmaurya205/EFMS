@@ -1,12 +1,15 @@
 import type { Request } from "express";
 import { ActivityLog } from "../models/ActivityLog.js";
+import { createHash } from "node:crypto";
 
 export async function logActivity(req: Request, input: { action: string; entityType?: string; entityId?: unknown; userId?: unknown; oldValue?: unknown; newValue?: unknown; reason?: string }) {
   const user = (req as Request & { user?: { id: string } }).user;
   const userAgent = String(req.headers["user-agent"] || "");
   const forwardedFor = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
   const ipAddress = forwardedFor || req.socket.remoteAddress || req.ip;
-  await ActivityLog.create({
+  const previous = await ActivityLog.findOne().sort({ createdAt: -1, _id: -1 }).select("integrityHash").lean();
+  const createdAt = new Date();
+  const base = {
     userId: user?.id ?? input.userId,
     action: input.action,
     entityType: input.entityType,
@@ -18,8 +21,12 @@ export async function logActivity(req: Request, input: { action: string; entityT
     userAgent,
     deviceType: getDeviceType(userAgent),
     browser: getBrowser(userAgent),
-    os: getOs(userAgent)
-  });
+    os: getOs(userAgent),
+    createdAt
+  };
+  const previousHash = previous?.integrityHash ?? "";
+  const integrityHash = createHash("sha256").update(`${previousHash}|${JSON.stringify(base)}`).digest("hex");
+  await ActivityLog.create({ ...base, previousHash, integrityHash });
 }
 
 function getDeviceType(userAgent: string) {

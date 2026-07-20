@@ -48,6 +48,8 @@ export type Invoice = {
   status: string;
   remarks?: string;
   createdAt: string;
+  customerGst?: string;
+  lines?: Array<{ description: string; quantity: number; unitPrice: number; gstRate: number }>;
 };
 
 export type Earning = {
@@ -119,4 +121,30 @@ export type MasterOption = {
   name: string;
   isArchived?: boolean;
   createdAt: string;
+};
+
+export type Budget = {
+  _id: string;
+  name: string;
+  month: string;
+  category?: string;
+  department?: string;
+  limit: number;
+  spent: number;
+  remaining: number;
+  utilization: number;
+  alert: "ok" | "warning" | "exceeded";
+};
+
+export type StatementEntry = {
+  _id: string;
+  bankAccount: BankAccount | string;
+  transactionDate: string;
+  description: string;
+  reference?: string;
+  debit: number;
+  credit: number;
+  balance?: number;
+  matchType?: string;
+  matchedRecordId?: string;
 };

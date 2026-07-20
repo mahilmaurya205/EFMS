@@ -16,10 +16,16 @@ import { masterOptionsRouter } from "./routes/masterOptions.js";
 import { bankAccountsRouter } from "./routes/bankAccounts.js";
 import { transfersRouter } from "./routes/transfers.js";
 import { rolesRouter } from "./routes/roles.js";
+import { analyticsRouter } from "./routes/analytics.js";
+import { budgetsRouter } from "./routes/budgets.js";
+import { reconciliationRouter } from "./routes/reconciliation.js";
+import { securityHeaders } from "./middleware/security.js";
+import { dataSafetyRouter } from "./routes/dataSafety.js";
 
 export const app = express();
 
 app.use(cors({ origin: env.clientOrigin, credentials: true }));
+app.use(securityHeaders);
 app.use(express.json({ limit: "2mb" }));
 app.use(morgan("dev"));
 
@@ -39,6 +45,10 @@ app.use("/api/options", masterOptionsRouter);
 app.use("/api/bank-accounts", bankAccountsRouter);
 app.use("/api/transfers", transfersRouter);
 app.use("/api/roles", rolesRouter);
+app.use("/api/analytics", analyticsRouter);
+app.use("/api/budgets", budgetsRouter);
+app.use("/api/reconciliation", reconciliationRouter);
+app.use("/api/data-safety", dataSafetyRouter);
 
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err);

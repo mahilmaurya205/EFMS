@@ -32,8 +32,13 @@ export function setToken(token: string) {
   localStorage.setItem("efms_token", token);
 }
 
+export function setRefreshToken(token: string) {
+  localStorage.setItem("efms_refresh_token", token);
+}
+
 export function clearToken() {
   localStorage.removeItem("efms_token");
+  localStorage.removeItem("efms_refresh_token");
 }
 
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -42,9 +47,30 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   const token = getToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
-  const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  let response = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  if (response.status === 401 && path !== "/auth/login" && path !== "/auth/refresh") {
+    const refreshToken = localStorage.getItem("efms_refresh_token");
+    if (refreshToken) {
+      const refreshed = await fetch(`${API_BASE}/auth/refresh`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refreshToken }) });
+      if (refreshed.ok) {
+        const tokens = await refreshed.json() as { token: string; refreshToken: string };
+        setToken(tokens.token);
+        setRefreshToken(tokens.refreshToken);
+        headers.set("Authorization", `Bearer ${tokens.token}`);
+        response = await fetch(`${API_BASE}${path}`, { ...options, headers });
+      } else clearToken();
+    }
+  }
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.message ?? "Request failed");
+  if (!response.ok) {
+    const message = payload.message ?? "Request failed";
+    window.dispatchEvent(new CustomEvent("efms:toast", { detail: { message, tone: "error" } }));
+    throw new Error(message);
+  }
+  if (options.method && !["GET", "HEAD"].includes(options.method.toUpperCase()) && path !== "/auth/refresh") {
+    const label = options.method === "DELETE" ? "Archived successfully" : options.method === "POST" ? "Saved successfully" : "Updated successfully";
+    window.dispatchEvent(new CustomEvent("efms:toast", { detail: { message: label, tone: "success" } }));
+  }
   return payload as T;
 }
 

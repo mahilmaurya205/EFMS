@@ -17,6 +17,9 @@ const userSchema = new Schema(
     joiningDate: { type: Date },
     basicSalary: { type: Number, default: 0 },
     isActive: { type: Boolean, default: true }
+    ,twoFactorEnabled: { type: Boolean, default: false }
+    ,twoFactorSecret: { type: String, select: false }
+    ,twoFactorPendingSecret: { type: String, select: false }
   },
   { timestamps: true }
 );

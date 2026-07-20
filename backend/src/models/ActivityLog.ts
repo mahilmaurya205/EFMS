@@ -14,6 +14,8 @@ const activityLogSchema = new Schema(
     oldValue: { type: Schema.Types.Mixed },
     newValue: { type: Schema.Types.Mixed },
     reason: { type: String }
+    ,previousHash: { type: String, default: "" }
+    ,integrityHash: { type: String, required: true, unique: true }
   },
   { timestamps: true }
 );

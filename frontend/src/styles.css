@@ -272,6 +272,172 @@ h2 {
   color: var(--accent-2);
 }
 
+.mobileMenu {
+  display: none;
+}
+
+.buttonRow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.analyticsGrid,
+.budgetGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 20px;
+}
+
+.chartPanel,
+.budgetCard {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--shadow);
+}
+
+.chartPanel h3 {
+  margin: 0 0 18px;
+}
+
+.barChart {
+  height: 220px;
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  padding: 10px;
+}
+
+.barGroup {
+  flex: 1;
+  min-width: 28px;
+  text-align: center;
+}
+
+.barGroup > div {
+  height: 185px;
+  display: flex;
+  align-items: end;
+  justify-content: center;
+  gap: 3px;
+}
+
+.barGroup i {
+  width: min(18px, 42%);
+  display: block;
+  border-radius: 4px 4px 0 0;
+}
+
+.incomeBar { background: var(--success); }
+.expenseBar { background: var(--danger); }
+.chartLegend { display: flex; gap: 20px; margin-top: 12px; color: var(--muted); }
+.chartLegend span:first-child { color: var(--success); }
+.chartLegend span:last-child { color: var(--danger); }
+
+.rankRow {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) 2fr auto;
+  gap: 10px;
+  align-items: center;
+  margin: 12px 0;
+}
+
+.rankRow > div,
+.progress {
+  height: 9px;
+  background: var(--surface-3);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.rankRow i,
+.progress i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+}
+
+.budgetCard > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.budgetCard > div:first-child span,
+.budgetCard small { color: var(--muted); }
+.budgetCard .progress { margin: 18px 0 10px; height: 12px; }
+.budgetCard.warning .progress i { background: var(--warning); }
+.budgetCard.exceeded .progress i { background: var(--danger); }
+.budgetNumbers { display: flex; justify-content: space-between; gap: 12px; }
+.budgetAlert { color: var(--warning); font-weight: 800; margin-bottom: 0; }
+.budgetCard.exceeded .budgetAlert { color: var(--danger); }
+.successText { color: var(--success) !important; }
+.dangerText { color: var(--danger) !important; }
+.successBox { padding: 12px; background: var(--success-soft); color: var(--success); border-radius: var(--radius); }
+.fileButton input { display: none; }
+
+.skeletonGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+}
+
+.skeletonGrid i {
+  height: 120px;
+  border-radius: var(--radius);
+  background: linear-gradient(90deg, var(--surface-3), var(--surface), var(--surface-3));
+  background-size: 200% 100%;
+  animation: shimmer 1.2s infinite;
+}
+
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+.toast {
+  position: fixed;
+  z-index: 100;
+  top: 18px;
+  right: 18px;
+  max-width: min(380px, calc(100vw - 36px));
+  padding: 13px 18px;
+  border-radius: var(--radius);
+  color: white;
+  background: var(--success);
+  box-shadow: var(--shadow);
+  font-weight: 750;
+  animation: toastIn .2s ease;
+}
+
+.toast.error { background: var(--danger); }
+@keyframes toastIn { from { opacity: 0; transform: translateY(-8px); } }
+
+@media (max-width: 900px) {
+  .shell { display: block; }
+  .sidebar { position: fixed; z-index: 20; width: 280px; transform: translateX(-105%); transition: transform .2s ease; }
+  .sidebar.open { transform: translateX(0); }
+  .mobileMenu { display: inline-grid; flex: 0 0 auto; }
+  main { padding: 18px; }
+  .topbar { margin: -18px -18px 20px; padding: 14px 18px; }
+  .topbar h1 { font-size: 20px; }
+  .analyticsGrid, .budgetGrid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 600px) {
+  .userbox > span { display: none; }
+  .sectionHead { align-items: flex-start; flex-direction: column; }
+  .cards.three, .skeletonGrid { grid-template-columns: 1fr; }
+  .rankRow { grid-template-columns: 90px 1fr; }
+  .rankRow strong { grid-column: 2; }
+}
+
+@media print {
+  .sidebar, .topbar, .filterBar, .buttonRow, button { display: none !important; }
+  .shell, main { display: block; padding: 0; }
+  .chartPanel, .card { box-shadow: none; break-inside: avoid; }
+}
+
 .iconButton.good {
   color: var(--success);
   background: var(--success-soft);

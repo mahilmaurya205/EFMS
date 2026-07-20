@@ -10,7 +10,10 @@ export const env = {
     .map((server) => server.trim())
     .filter(Boolean),
   jwtSecret: process.env.JWT_SECRET ?? "dev-secret-change-me",
-  clientOrigin: process.env.CLIENT_ORIGIN ?? "http://localhost:5173"
+  refreshSecret: process.env.REFRESH_SECRET ?? process.env.JWT_SECRET ?? "dev-refresh-secret-change-me",
+  clientOrigin: process.env.CLIENT_ORIGIN ?? "http://localhost:5173",
+  exposeResetToken: process.env.NODE_ENV !== "production"
+  ,dataEncryptionKey: process.env.DATA_ENCRYPTION_KEY ?? process.env.JWT_SECRET ?? "dev-data-key-change-me"
 };
 
 if (!env.mongodbUri) {

@@ -24,9 +24,10 @@ import {
   Users,
   XCircle
 } from "lucide-react";
-import { api, clearToken, getToken, rupee, setToken, type User } from "./api";
-import type { BankAccount, Expense, Invoice, MasterOption, OperationalRecord, RoleOption, Transfer, Voucher } from "./types";
+import { api, clearToken, getToken, rupee, setRefreshToken, setToken, type User } from "./api";
+import type { BankAccount, Budget, Expense, Invoice, MasterOption, OperationalRecord, RoleOption, StatementEntry, Transfer, Voucher } from "./types";
 import type { Earning } from "./types";
+import QRCode from "qrcode";
 
 type Dashboard = {
   totalExpense: number;
@@ -50,6 +51,10 @@ const nav = [
   { id: "bankAccounts", label: "Bank Accounts", icon: Banknote },
   { id: "transfers", label: "Cash/Bank Transfer", icon: ArrowLeftRight },
   { id: "statements", label: "Statements", icon: ClipboardList },
+  { id: "reports", label: "Reports & Analytics", icon: TrendingUp },
+  { id: "budgets", label: "Budgets", icon: BadgeIndianRupee },
+  { id: "reconciliation", label: "Bank Reconciliation", icon: DatabaseBackup },
+  { id: "dataSafety", label: "Backup & Restore", icon: DatabaseBackup },
   { id: "vouchers", label: "Vouchers", icon: FileText },
   { id: "employees", label: "Employees", icon: Users },
   { id: "roles", label: "Roles & Staff", icon: ShieldCheck },
@@ -73,6 +78,8 @@ export function App() {
   const [view, setView] = useState("dashboard");
   const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useState(() => localStorage.getItem("efms_theme") || "dark");
+  const [mobileNav, setMobileNav] = useState(false);
+  const [toast, setToast] = useState<{ message: string; tone: string } | null>(null);
 
   useEffect(() => {
     if (!getToken()) {
@@ -90,6 +97,15 @@ export function App() {
     localStorage.setItem("efms_theme", theme);
   }, [theme]);
 
+  useEffect(() => {
+    const listener = (event: Event) => {
+      setToast((event as CustomEvent<{ message: string; tone: string }>).detail);
+      window.setTimeout(() => setToast(null), 3200);
+    };
+    window.addEventListener("efms:toast", listener);
+    return () => window.removeEventListener("efms:toast", listener);
+  }, []);
+
   const visibleNav = user?.role === "super_admin" ? nav : nav.filter((item) => user?.permissions?.sidebar?.includes(item.id));
 
   useEffect(() => {
@@ -103,7 +119,8 @@ export function App() {
 
   return (
     <div className="shell">
-      <aside className="sidebar">
+      {toast && <div className={`toast ${toast.tone}`}>{toast.message}</div>}
+      <aside className={`sidebar ${mobileNav ? "open" : ""}`}>
         <div className="brand">
           <ShieldCheck size={26} />
           <div>
@@ -115,7 +132,7 @@ export function App() {
           {visibleNav.map((item) => {
             const Icon = item.icon;
             return (
-              <button className={view === item.id ? "active" : ""} key={item.id} onClick={() => setView(item.id)}>
+              <button className={view === item.id ? "active" : ""} key={item.id} onClick={() => { setView(item.id); setMobileNav(false); }}>
                 <Icon size={18} />
                 {item.label}
               </button>
@@ -125,6 +142,7 @@ export function App() {
       </aside>
       <main>
         <header className="topbar">
+          <button className="iconButton mobileMenu" onClick={() => setMobileNav((value) => !value)} title="Menu">☰</button>
           <div>
             <span className="eyebrow">Logged in as</span>
             <h1>{user.name}</h1>
@@ -156,6 +174,10 @@ export function App() {
         {view === "bankAccounts" && <BankAccountsView user={user} />}
         {view === "transfers" && <TransfersView user={user} />}
         {view === "statements" && <StatementsView />}
+        {view === "reports" && <ReportsView />}
+        {view === "budgets" && <BudgetsView user={user} />}
+        {view === "reconciliation" && <ReconciliationView user={user} />}
+        {view === "dataSafety" && <DataSafetyView user={user} />}
         {view === "employees" && <EmployeesView user={user} />}
         {view === "roles" && <RolesStaffView user={user} />}
         {view === "vouchers" && <VouchersView user={user} />}
@@ -375,19 +397,24 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
   const [email, setEmail] = useState("admin@efms.local");
   const [password, setPassword] = useState("Admin@123");
   const [error, setError] = useState("");
+  const [otp, setOtp] = useState("");
+  const [needsOtp, setNeedsOtp] = useState(false);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setError("");
     try {
-      const data = await api<{ token: string; user: User }>("/auth/login", {
+      const data = await api<{ token: string; refreshToken: string; user: User }>("/auth/login", {
         method: "POST",
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ email, password, ...(otp ? { otp } : {}) })
       });
       setToken(data.token);
+      setRefreshToken(data.refreshToken);
       onLogin(data.user);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed");
+      const message = err instanceof Error ? err.message : "Login failed";
+      if (message.toLowerCase().includes("authentication code")) setNeedsOtp(true);
+      setError(message);
     }
   }
 
@@ -405,6 +432,7 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
           Email
           <input value={email} onChange={(event) => setEmail(event.target.value)} />
         </label>
+        {needsOtp && <label>Authenticator Code<input inputMode="numeric" pattern="\d{6}" maxLength={6} value={otp} onChange={(event) => setOtp(event.target.value.replace(/\D/g, ""))} placeholder="6-digit code" autoFocus /></label>}
         <label>
           Password
           <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
@@ -1100,6 +1128,131 @@ function StatementsView() {
   );
 }
 
+type Analytics = {
+  totals: { income: number; expense: number; profit: number };
+  monthly: Array<{ month: string; income: number; expense: number; net: number }>;
+  categoryExpenses: Array<{ name: string; amount: number }>;
+  employeeExpenses: Array<{ name: string; amount: number }>;
+  vendorExpenses: Array<{ name: string; amount: number }>;
+};
+
+function ReportsView() {
+  const now = new Date();
+  const [filters, setFilters] = useState({ from: `${now.getFullYear()}-01-01`, to: now.toISOString().slice(0, 10) });
+  const [data, setData] = useState<Analytics | null>(null);
+  const [loading, setLoading] = useState(true);
+  const query = new URLSearchParams(filters).toString();
+  useEffect(() => {
+    setLoading(true);
+    api<Analytics>(`/analytics/summary?${query}`).then(setData).finally(() => setLoading(false));
+  }, [query]);
+  const max = Math.max(1, ...(data?.monthly.flatMap((item) => [item.income, item.expense]) ?? [1]));
+  async function download(format: "csv" | "excel") {
+    const token = getToken();
+    const response = await fetch(`${import.meta.env.VITE_API_BASE ?? "http://localhost:4000/api"}/analytics/export?${query}&format=${format}`, { headers: { Authorization: `Bearer ${token}` } });
+    const blob = await response.blob();
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `efms-report.${format === "csv" ? "csv" : "xls"}`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  }
+  return <section>
+    <div className="sectionHead"><div><span className="eyebrow">Financial intelligence</span><h2>Reports & Analytics</h2></div><div className="buttonRow"><button className="secondary compact" onClick={() => download("csv")}>CSV</button><button className="secondary compact" onClick={() => download("excel")}>Excel</button><button className="primary compact" onClick={() => window.print()}>Print / PDF</button></div></div>
+    <FilterBar><label>From<input type="date" value={filters.from} onChange={(e) => setFilters({ ...filters, from: e.target.value })} /></label><label>To<input type="date" value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} /></label></FilterBar>
+    {loading || !data ? <div className="skeletonGrid"><i /><i /><i /></div> : <>
+      <div className="cards three"><article className="card"><span>Income</span><strong>{rupee(data.totals.income)}</strong></article><article className="card"><span>Expense</span><strong>{rupee(data.totals.expense)}</strong></article><article className="card"><span>Net P&amp;L</span><strong className={data.totals.profit < 0 ? "dangerText" : "successText"}>{rupee(data.totals.profit)}</strong></article></div>
+      <div className="analyticsGrid">
+        <article className="chartPanel"><h3>Monthly cash flow</h3><div className="barChart">{data.monthly.map((item) => <div className="barGroup" key={item.month}><div><i className="incomeBar" style={{ height: `${Math.max(3, item.income / max * 180)}px` }} title={`Income ${rupee(item.income)}`} /><i className="expenseBar" style={{ height: `${Math.max(3, item.expense / max * 180)}px` }} title={`Expense ${rupee(item.expense)}`} /></div><small>{item.month.slice(5)}</small></div>)}</div><div className="chartLegend"><span>● Income</span><span>● Expense</span></div></article>
+        <RankedReport title="Category-wise expenses" rows={data.categoryExpenses} />
+        <RankedReport title="Employee-wise expenses" rows={data.employeeExpenses} />
+        <RankedReport title="Vendor-wise expenses" rows={data.vendorExpenses} />
+      </div>
+    </>}
+  </section>;
+}
+
+function RankedReport({ title, rows }: { title: string; rows: Array<{ name: string; amount: number }> }) {
+  const max = Math.max(1, ...rows.map((row) => row.amount));
+  return <article className="chartPanel"><h3>{title}</h3>{rows.slice(0, 8).map((row) => <div className="rankRow" key={row.name}><span>{row.name}</span><div><i style={{ width: `${row.amount / max * 100}%` }} /></div><strong>{rupee(row.amount)}</strong></div>)}{!rows.length && <p className="muted">No records in this period.</p>}</article>;
+}
+
+function BudgetsView({ user }: { user: User }) {
+  const [budgets, setBudgets] = useState<Budget[]>([]);
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ name: "", month: new Date().toISOString().slice(0, 7), category: "", department: "", limit: 0 });
+  const load = () => api<Budget[]>("/budgets").then(setBudgets);
+  useEffect(() => { load(); }, []);
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    await api("/budgets", { method: "POST", body: JSON.stringify(form) });
+    setOpen(false); setForm({ ...form, name: "", limit: 0 }); await load();
+  }
+  return <section><div className="sectionHead"><div><span className="eyebrow">Spend control</span><h2>Monthly budgets</h2></div>{user.role === "super_admin" && <button className="primary compact" onClick={() => setOpen(!open)}><Plus size={16} /> New Budget</button>}</div>
+    {open && <form className="formGrid" onSubmit={submit}><label>Name<input required minLength={2} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label><label>Month<input type="month" required value={form.month} onChange={(e) => setForm({ ...form, month: e.target.value })} /></label><label>Category (optional)<input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} /></label><label>Department (optional)<input value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} /></label><label>Limit<input type="number" min="1" required value={form.limit} onChange={(e) => setForm({ ...form, limit: Number(e.target.value) })} /></label><button className="primary compact">Save Budget</button></form>}
+    <div className="budgetGrid">{budgets.map((budget) => <article className={`budgetCard ${budget.alert}`} key={budget._id}><div><span>{budget.month}</span><strong>{budget.name}</strong><small>{[budget.department, budget.category].filter(Boolean).join(" · ") || "Company-wide"}</small></div><div className="progress"><i style={{ width: `${Math.min(100, budget.utilization)}%` }} /></div><div className="budgetNumbers"><span>{rupee(budget.spent)} spent</span><strong>{budget.utilization}%</strong><span>{rupee(budget.limit)} limit</span></div>{budget.alert !== "ok" && <p className="budgetAlert">{budget.alert === "exceeded" ? "Budget exceeded" : "80% budget warning"}</p>}</article>)}</div>
+  </section>;
+}
+
+function ReconciliationView({ user }: { user: User }) {
+  const [accounts, setAccounts] = useState<BankAccount[]>([]);
+  const [account, setAccount] = useState("");
+  const [entries, setEntries] = useState<StatementEntry[]>([]);
+  const [message, setMessage] = useState("");
+  const load = (id = account) => api<StatementEntry[]>(`/reconciliation${id ? `?bankAccount=${id}` : ""}`).then(setEntries);
+  useEffect(() => { api<BankAccount[]>("/bank-accounts").then((items) => { setAccounts(items); if (items[0]) setAccount(items[0]._id); }); }, []);
+  useEffect(() => { if (account) load(account); }, [account]);
+  async function importCsv(file?: File) {
+    if (!file || !account) return;
+    const lines = (await file.text()).split(/\r?\n/).filter(Boolean);
+    const headers = lines.shift()!.split(",").map((x) => x.trim().toLowerCase());
+    const entries = lines.map((line) => { const cells = line.split(",").map((x) => x.trim().replace(/^"|"$/g, "")); const get = (name: string) => cells[headers.indexOf(name)] || ""; return { date: get("date"), description: get("description"), reference: get("reference"), debit: Number(get("debit") || 0), credit: Number(get("credit") || 0), balance: get("balance") ? Number(get("balance")) : undefined }; });
+    const result = await api<{ imported: number; duplicates: number }>("/reconciliation/import", { method: "POST", body: JSON.stringify({ bankAccount: account, entries }) });
+    setMessage(`${result.imported} imported, ${result.duplicates} duplicates skipped`); await load();
+  }
+  return <section><div className="sectionHead"><div><span className="eyebrow">Bank control</span><h2>Reconciliation</h2></div>{user.role === "super_admin" && <label className="primary compact fileButton">Import CSV<input type="file" accept=".csv" onChange={(e) => importCsv(e.target.files?.[0])} /></label>}</div>
+    <FilterBar><label>Bank account<select value={account} onChange={(e) => setAccount(e.target.value)}>{accounts.map((x) => <option key={x._id} value={x._id}>{x.bankName} - {x.accountNumber}</option>)}</select></label><span className="muted">CSV columns: date, description, reference, debit, credit, balance</span></FilterBar>{message && <p className="successBox">{message}</p>}
+    <div className="summaryStrip"><strong>Imported: {entries.length}</strong><strong>Matched: {entries.filter((x) => x.matchType).length}</strong><strong>Unmatched: {entries.filter((x) => !x.matchType).length}</strong></div>
+    <SimpleTable rows={entries} columns={["transactionDate", "description", "reference", "debit", "credit", "balance", "matchType"]} />
+  </section>;
+}
+
+function DataSafetyView({ user }: { user: User }) {
+  const [message, setMessage] = useState("");
+  const [twoFactor, setTwoFactor] = useState<{ secret: string; otpauthUrl: string } | null>(null);
+  const [otp, setOtp] = useState("");
+  if (user.role !== "super_admin") return <div className="emptyState">Only Super Admin can access backups.</div>;
+  async function backup() {
+    const response = await fetch(`${import.meta.env.VITE_API_BASE ?? "http://localhost:4000/api"}/data-safety/backup`, { headers: { Authorization: `Bearer ${getToken()}` } });
+    if (!response.ok) throw new Error("Backup failed");
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement("a"); link.href = url; link.download = `efms-backup-${new Date().toISOString().slice(0, 10)}.json`; link.click(); URL.revokeObjectURL(url);
+    setMessage("Encrypted transport backup downloaded successfully.");
+  }
+  async function restore(file?: File) {
+    if (!file) return;
+    const confirmation = window.prompt('Restore merges backup records into the database. Type "RESTORE EFMS" to continue.');
+    if (confirmation !== "RESTORE EFMS") return;
+    const backup = JSON.parse(await file.text());
+    const result = await api<{ restored: Record<string, number> }>("/data-safety/restore", { method: "POST", body: JSON.stringify({ confirmation, backup }) });
+    setMessage(`Restore completed: ${Object.values(result.restored).reduce((sum, count) => sum + count, 0)} records processed.`);
+  }
+  async function setup2fa() {
+    const setup = await api<{ secret: string; otpauthUrl: string }>("/auth/2fa/setup", { method: "POST" });
+    setTwoFactor(setup);
+  }
+  async function enable2fa() {
+    await api("/auth/2fa/enable", { method: "POST", body: JSON.stringify({ otp }) });
+    setTwoFactor(null); setOtp(""); setMessage("Two-factor authentication enabled.");
+  }
+  return <section><div className="sectionHead"><div><span className="eyebrow">Disaster recovery</span><h2>Backup & Restore</h2></div></div>
+    <div className="analyticsGrid"><article className="chartPanel"><h3>Download backup</h3><p className="muted">Exports finance data, users, configuration and integrity-protected audit logs as versioned JSON.</p><button className="primary" onClick={backup}>Download Backup</button></article>
+      <article className="chartPanel"><h3>Restore backup</h3><p className="muted">Safely upserts records by ID. Existing audit history is never overwritten.</p><label className="secondary fileButton">Select Backup<input type="file" accept=".json,application/json" onChange={(e) => restore(e.target.files?.[0])} /></label></article>
+      <article className="chartPanel"><h3>Two-factor authentication</h3><p className="muted">Protect this Super Admin account with any TOTP authenticator app.</p>{!twoFactor ? <button className="secondary" onClick={setup2fa}>Set up 2FA</button> : <><p>Enter this secret in your authenticator:</p><code className="secretCode">{twoFactor.secret}</code><label>Verification code<input inputMode="numeric" maxLength={6} value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))} /></label><button className="primary compact" disabled={otp.length !== 6} onClick={enable2fa}>Verify & Enable</button></>}</article></div>
+    {message && <p className="successBox">{message}</p>}<div className="emptyState"><strong>Automated backups:</strong> schedule <code>npm run backup</code> daily using Task Scheduler or cron. The script retains the latest 14 snapshots.</div>
+  </section>;
+}
+
 function ExpensesView({ user }: { user: User }) {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [categories, setCategories] = useState<MasterOption[]>([]);
@@ -1472,7 +1625,7 @@ function VouchersView({ user }: { user: User }) {
           isSuperAdmin
             ? (voucher) => (
                 <>
-                  <button className="iconButton" onClick={() => setReceiptVoucher(voucher)} title="Receipt"><FileText size={16} /></button>
+                  <button className="iconButton" onClick={() => printFinancialDocument("voucher", voucher)} title="Print / PDF"><FileText size={16} /></button>
                   <RowActions
                     onEdit={() => {
                       setEditingVoucher(voucher);
@@ -1689,7 +1842,10 @@ function InvoicesView({ user }: { user: User }) {
         rows={invoices}
         columns={["invoiceNumber", "type", "customer", "subtotal", "gstAmount", "totalAmount", "remarks", "status"]}
         moneyColumn="totalAmount"
-        renderActions={isSuperAdmin ? (invoice) => <RowActions onEdit={() => editInvoice(invoice)} onDelete={() => deleteInvoice(invoice)} deleteTitle="Cancel" /> : undefined}
+        renderActions={(invoice) => <>
+          <button className="iconButton" onClick={() => printFinancialDocument("invoice", invoice)} title="Print / PDF"><FileText size={16} /></button>
+          {isSuperAdmin && <RowActions onEdit={() => editInvoice(invoice)} onDelete={() => deleteInvoice(invoice)} deleteTitle="Cancel" />}
+        </>}
       />
     </section>
   );
@@ -2332,6 +2488,35 @@ function fileToDataUrl(file: File) {
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(file);
   });
+}
+
+async function printFinancialDocument(kind: "invoice" | "voucher", value: Invoice | Voucher) {
+  const isInvoice = kind === "invoice";
+  const invoice = value as Invoice;
+  const voucher = value as Voucher;
+  const number = isInvoice ? invoice.invoiceNumber : voucher.voucherNumber;
+  const verification = `${location.origin}/verify/${kind}/${number}`;
+  const qr = await QRCode.toDataURL(verification, { margin: 1, width: 150, errorCorrectionLevel: "M" });
+  const money = (amount: number) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(amount || 0);
+  const rows = isInvoice
+    ? (invoice.lines ?? []).map((line) => `<tr><td>${escapeHtml(line.description)}</td><td>${line.quantity}</td><td>${money(line.unitPrice)}</td><td>${line.gstRate}%</td><td>${money(line.quantity * line.unitPrice * (1 + line.gstRate / 100))}</td></tr>`).join("")
+    : `<tr><td>${escapeHtml(voucher.purpose)}</td><td>${escapeHtml(voucher.receiver || "-")}</td><td>${escapeHtml(voucher.paymentMode || "-")}</td><td>${money(voucher.amount)}</td></tr>`;
+  const popup = window.open("", "_blank", "width=900,height=760");
+  if (!popup) return;
+  popup.document.write(`<!doctype html><html><head><title>${number}</title><style>
+    body{font:14px Arial;color:#111;padding:36px;max-width:850px;margin:auto}header{display:flex;justify-content:space-between;border-bottom:3px solid #2563eb;padding-bottom:18px}.logo{font-size:30px;font-weight:900;color:#2563eb}.meta{text-align:right}table{width:100%;border-collapse:collapse;margin:28px 0}th,td{border:1px solid #ccd5e0;padding:10px;text-align:left}.totals{margin-left:auto;width:310px}.totals p{display:flex;justify-content:space-between}.grand{font-size:18px;font-weight:bold;border-top:2px solid #111;padding-top:10px}.footer{display:flex;justify-content:space-between;align-items:end;margin-top:60px}.signature{text-align:center;border-top:1px solid #111;padding-top:8px;min-width:190px}.qr{text-align:center;font-size:10px}.qr img{width:120px;display:block}.no-print{position:fixed;right:20px;top:20px;padding:10px 18px;background:#2563eb;color:#fff;border:0;border-radius:6px}@media print{.no-print{display:none}}</style></head><body>
+    <button class="no-print" onclick="window.print()">Print / Save PDF</button>
+    <header><div><div class="logo">EFMS</div><strong>Expense & Finance Management System</strong><p>GSTIN: Configure in company settings</p></div><div class="meta"><h1>${isInvoice ? invoice.type.replaceAll("_", " ").toUpperCase() : `${voucher.type.toUpperCase()} VOUCHER`}</h1><strong>${number}</strong><p>${new Date(value.createdAt).toLocaleDateString("en-IN")}</p></div></header>
+    ${isInvoice ? `<h3>Bill To</h3><p><strong>${escapeHtml(invoice.customer)}</strong><br>GSTIN: ${escapeHtml(invoice.customerGst || "N/A")}</p>` : ""}
+    <table><thead><tr>${isInvoice ? "<th>Description</th><th>Qty</th><th>Rate</th><th>GST</th><th>Total</th>" : "<th>Purpose</th><th>Receiver</th><th>Mode</th><th>Amount</th>"}</tr></thead><tbody>${rows}</tbody></table>
+    ${isInvoice ? `<div class="totals"><p><span>Subtotal</span><b>${money(invoice.subtotal)}</b></p><p><span>GST</span><b>${money(invoice.gstAmount)}</b></p><p class="grand"><span>Grand Total</span><b>${money(invoice.totalAmount)}</b></p></div>` : ""}
+    <p><strong>Remarks:</strong> ${escapeHtml(value.remarks || "-")}</p><div class="footer"><div class="qr"><img src="${qr}">Scan to verify<br>${number}</div><div class="signature"><em>Digitally generated</em><br><br><strong>Authorized Signatory</strong></div></div>
+  </body></html>`);
+  popup.document.close();
+}
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char] || char));
 }
 
 function toDateInputValue(value?: string) {

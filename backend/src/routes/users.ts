@@ -6,6 +6,7 @@ import { User } from "../models/User.js";
 import { Expense } from "../models/Expense.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { logActivity } from "../services/activity.js";
+import { decryptSensitive, encryptSensitive } from "../utils/encryption.js";
 
 export const usersRouter = Router();
 
@@ -24,7 +25,7 @@ usersRouter.get(
     const expenseTotals = new Map(employeeExpenses.map((item) => [String(item._id), item.total]));
     res.json(users.map((user) => {
       const expenseTotal = expenseTotals.get(String(user._id)) ?? 0;
-      return { ...user, id: String(user._id), expenseTotal, totalPayable: Number(user.basicSalary || 0) + expenseTotal };
+      return { ...user, phone: decryptSensitive(user.phone), aadharNo: decryptSensitive(user.aadharNo), address: decryptSensitive(user.address), id: String(user._id), expenseTotal, totalPayable: Number(user.basicSalary || 0) + expenseTotal };
     }));
   })
 );
@@ -50,7 +51,7 @@ usersRouter.post(
   asyncHandler(async (req, res) => {
     const data = createUserSchema.parse(req.body);
     const passwordHash = await bcrypt.hash(data.password, 10);
-    const user = await User.create({ ...data, joiningDate: data.joiningDate ? new Date(data.joiningDate) : undefined, email: data.email.toLowerCase(), passwordHash });
+    const user = await User.create({ ...data, phone: encryptSensitive(data.phone), aadharNo: encryptSensitive(data.aadharNo), address: encryptSensitive(data.address), joiningDate: data.joiningDate ? new Date(data.joiningDate) : undefined, email: data.email.toLowerCase(), passwordHash });
     await logActivity(req, { action: "user.create", entityType: "user", entityId: user._id, newValue: { email: user.email, role: user.role } });
     res.status(201).json({ id: user._id, name: user.name, email: user.email, role: user.role });
   })
@@ -82,6 +83,9 @@ usersRouter.patch(
     void password;
     const update = {
       ...safeData,
+      ...(data.phone !== undefined ? { phone: encryptSensitive(data.phone) } : {}),
+      ...(data.aadharNo !== undefined ? { aadharNo: encryptSensitive(data.aadharNo) } : {}),
+      ...(data.address !== undefined ? { address: encryptSensitive(data.address) } : {}),
       ...(passwordHash ? { passwordHash } : {}),
       ...(data.joiningDate ? { joiningDate: new Date(data.joiningDate) } : {})
     };
@@ -89,7 +93,8 @@ usersRouter.patch(
     const user = await User.findByIdAndUpdate(req.params.id, update, { new: true }).select("-passwordHash");
     if (!user) return res.status(404).json({ message: "User not found" });
     await logActivity(req, { action: "user.update", entityType: "user", entityId: user._id, oldValue: oldUser, newValue: user.toObject() });
-    res.json(user);
+    const output = user.toObject();
+    res.json({ ...output, phone: decryptSensitive(output.phone), aadharNo: decryptSensitive(output.aadharNo), address: decryptSensitive(output.address) });
   })
 );
 

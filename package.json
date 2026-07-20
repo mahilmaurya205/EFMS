@@ -6,6 +6,7 @@
     "dev": "node node_modules/concurrently/dist/bin/concurrently.js \"npm run dev --workspace backend\" \"npm run dev --workspace frontend\"",
     "build": "npm run build --workspace backend && npm run build --workspace frontend",
     "start": "npm run start --workspace backend"
+    ,"backup": "npm run backup --workspace backend"
   },
   "workspaces": [
     "backend",

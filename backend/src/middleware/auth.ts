@@ -57,3 +57,11 @@ export function requireRole(...roles: string[]) {
     next();
   };
 }
+
+export function requirePermission(permission: string) {
+  return (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user) return res.status(401).json({ message: "Authentication required" });
+    if (req.user.role === "super_admin" || req.user.permissions?.sidebar.includes(permission)) return next();
+    return res.status(403).json({ message: `Permission denied: ${permission}` });
+  };
+}
