@@ -5,10 +5,15 @@ let app;
 try {
   await connectDatabase();
   app = (await import("./app.js")).app;
-} catch {
+} catch (error) {
+  if (env.nodeEnv === "production") {
+    console.error("EFMS cannot start in production without MongoDB.");
+    console.error(error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
   console.warn("Starting EFMS in local memory mode because MongoDB is unavailable.");
   console.warn("Data created in this mode is temporary and resets when the backend restarts.");
-app = (await import("./devMemoryApp.js")).createDevMemoryApp();
+  app = (await import("./devMemoryApp.js")).createDevMemoryApp();
 }
 
 const server = app.listen(env.port, () => {

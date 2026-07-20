@@ -396,8 +396,8 @@ function SearchView() {
 }
 
 function Login({ onLogin }: { onLogin: (user: User) => void }) {
-  const [email, setEmail] = useState("admin@efms.local");
-  const [password, setPassword] = useState("Htech@2026#");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [otp, setOtp] = useState("");
@@ -423,7 +423,7 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
 
   return (
     <div className="loginPage">
-      <form className="loginPanel" onSubmit={submit}>
+      <form className="loginPanel" onSubmit={submit} autoComplete="off">
         <div className="brand large">
           <ShieldCheck size={32} />
           <div>
@@ -433,13 +433,13 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
         </div>
         <label>
           Email
-          <input value={email} onChange={(event) => setEmail(event.target.value)} />
+          <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="off" placeholder="Enter your email" required />
         </label>
         {needsOtp && <label>Authenticator Code<input inputMode="numeric" pattern="\d{6}" maxLength={6} value={otp} onChange={(event) => setOtp(event.target.value.replace(/\D/g, ""))} placeholder="6-digit code" autoFocus /></label>}
         <label>
           Password
           <span className="passwordField">
-            <input type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} />
+            <input type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" placeholder="Enter your password" required />
             <button type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? "Hide password" : "Show password"} title={showPassword ? "Hide password" : "Show password"}>
               {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
             </button>
