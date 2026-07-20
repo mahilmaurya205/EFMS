@@ -3,12 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "node --watch --import tsx src/server.ts",
-    "build": "node ../node_modules/typescript/bin/tsc",
+    "build": "node scripts/build.mjs",
     "start": "node dist/server.js",
-    "seed": "node --import tsx src/seed.ts"
-    ,"backup": "node --import tsx src/backup.ts"
+    "seed": "tsx src/seed.ts",
+    "backup": "tsx src/backup.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
