@@ -75,6 +75,38 @@ button:hover {
   transform: translateY(-1px);
 }
 
+.passwordField {
+  position: relative;
+  display: block;
+}
+
+.passwordField input {
+  width: 100%;
+  padding-right: 48px;
+}
+
+.passwordField button {
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.passwordField button:hover {
+  transform: translateY(-50%);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
 .splash,
 .loginPage {
   min-height: 100vh;

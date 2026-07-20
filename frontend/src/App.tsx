@@ -10,6 +10,8 @@ import {
   FolderOpen,
   Pencil,
   FileText,
+  Eye,
+  EyeOff,
   LayoutDashboard,
   LogOut,
   Moon,
@@ -395,7 +397,8 @@ function SearchView() {
 
 function Login({ onLogin }: { onLogin: (user: User) => void }) {
   const [email, setEmail] = useState("admin@efms.local");
-  const [password, setPassword] = useState("Admin@123");
+  const [password, setPassword] = useState("Htech@2026#");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [otp, setOtp] = useState("");
   const [needsOtp, setNeedsOtp] = useState(false);
@@ -435,7 +438,12 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
         {needsOtp && <label>Authenticator Code<input inputMode="numeric" pattern="\d{6}" maxLength={6} value={otp} onChange={(event) => setOtp(event.target.value.replace(/\D/g, ""))} placeholder="6-digit code" autoFocus /></label>}
         <label>
           Password
-          <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+          <span className="passwordField">
+            <input type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} />
+            <button type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? "Hide password" : "Show password"} title={showPassword ? "Hide password" : "Show password"}>
+              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
+          </span>
         </label>
         {error && <p className="error">{error}</p>}
         <button className="primary">Login</button>

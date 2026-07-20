@@ -6,15 +6,17 @@ import { BankAccount } from "./models/BankAccount.js";
 
 await connectDatabase();
 
-const passwordHash = await bcrypt.hash("Admin@123", 10);
+const passwordHash = await bcrypt.hash("Htech@2026#", 12);
 
 await User.updateOne(
   { email: "admin@efms.local" },
   {
+    $set: {
+      passwordHash
+    },
     $setOnInsert: {
       name: "EFMS Admin",
       email: "admin@efms.local",
-      passwordHash,
       role: "super_admin",
       department: "Finance"
     }
