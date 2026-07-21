@@ -76,13 +76,14 @@ export async function generateReportPdf(input: { from: Date; to: Date; rows: Rep
     { label: "TOTAL EXPENSE", value: input.expense, color: "#dc2626" },
     { label: "NET PROFIT / LOSS", value: input.income - input.expense, color: input.income - input.expense >= 0 ? "#2563eb" : "#dc2626" }
   ];
+  const cardY = doc.y;
   cards.forEach((card, index) => {
     const x = 42 + index * 174;
-    doc.save().roundedRect(x, doc.y, 163, 58, 7).fill("#f8fafc").strokeColor(line).stroke().restore();
-    doc.fillColor(muted).font("Helvetica-Bold").fontSize(7).text(card.label, x + 10, doc.y + 11, { width: 143 });
-    doc.fillColor(card.color).font("Helvetica-Bold").fontSize(13).text(money(card.value), x + 10, doc.y + 29, { width: 143 });
+    doc.save().roundedRect(x, cardY, 163, 58, 7).fill("#f8fafc").strokeColor(line).stroke().restore();
+    doc.fillColor(muted).font("Helvetica-Bold").fontSize(7).text(card.label, x + 10, cardY + 11, { width: 143 });
+    doc.fillColor(card.color).font("Helvetica-Bold").fontSize(13).text(money(card.value), x + 10, cardY + 29, { width: 143 });
   });
-  doc.y += 78;
+  doc.y = cardY + 78;
   const columns = [
     { label: "TYPE", x: 48, width: 54 }, { label: "DATE", x: 105, width: 61 }, { label: "PARTY", x: 169, width: 115 },
     { label: "CATEGORY / SOURCE", x: 287, width: 110 }, { label: "STATUS", x: 400, width: 65 }, { label: "AMOUNT", x: 468, width: 78, align: "right" as const }

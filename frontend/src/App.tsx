@@ -30,7 +30,6 @@ import {
 import { api, apiBlob, clearToken, getToken, rupee, setRefreshToken, setToken, type User } from "./api";
 import type { BankAccount, Budget, Expense, Invoice, MasterOption, OperationalRecord, RoleOption, StatementEntry, Transfer, Voucher } from "./types";
 import type { Earning } from "./types";
-import QRCode from "qrcode";
 
 type Dashboard = {
   totalExpense: number;
@@ -1251,16 +1250,16 @@ function ReportsView() {
     api<Analytics>(`/analytics/summary?${query}`).then(setData).finally(() => setLoading(false));
   }, [query]);
   const max = Math.max(1, ...(data?.monthly.flatMap((item) => [item.income, item.expense]) ?? [1]));
-  async function download(format: "csv" | "excel") {
-    const blob = await apiBlob(`/analytics/export?${query}&format=${format}`);
+  async function download(format: "csv" | "excel" | "pdf") {
+    const blob = await apiBlob(format === "pdf" ? `/analytics/pdf?${query}` : `/analytics/export?${query}&format=${format}`);
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.download = `efms-report.${format === "csv" ? "csv" : "xls"}`;
+    link.download = `efms-report.${format === "csv" ? "csv" : format === "pdf" ? "pdf" : "xls"}`;
     link.click();
     URL.revokeObjectURL(link.href);
   }
   return <section>
-    <div className="sectionHead"><div><span className="eyebrow">Financial intelligence</span><h2>Reports & Analytics</h2></div><div className="buttonRow"><button className="secondary compact" onClick={() => download("csv")}>CSV</button><button className="secondary compact" onClick={() => download("excel")}>Excel</button><button className="primary compact" onClick={() => window.print()}>Print / PDF</button></div></div>
+    <div className="sectionHead"><div><span className="eyebrow">Financial intelligence</span><h2>Reports & Analytics</h2></div><div className="buttonRow"><button className="secondary compact" onClick={() => download("csv")}>CSV</button><button className="secondary compact" onClick={() => download("excel")}>Excel</button><button className="primary compact" onClick={() => download("pdf")}><Download size={16} /> Download PDF</button></div></div>
     <FilterBar><label>From<input type="date" value={filters.from} onChange={(e) => setFilters({ ...filters, from: e.target.value })} /></label><label>To<input type="date" value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} /></label></FilterBar>
     {loading || !data ? <div className="skeletonGrid"><i /><i /><i /></div> : <>
       <div className="cards three"><article className="card"><span>Income</span><strong>{rupee(data.totals.income)}</strong></article><article className="card"><span>Expense</span><strong>{rupee(data.totals.expense)}</strong></article><article className="card"><span>Net P&amp;L</span><strong className={data.totals.profit < 0 ? "dangerText" : "successText"}>{rupee(data.totals.profit)}</strong></article></div>
@@ -1772,7 +1771,7 @@ function VouchersView({ user }: { user: User }) {
           isSuperAdmin
             ? (voucher) => (
                 <>
-                  <button className="iconButton" onClick={() => printFinancialDocument("voucher", voucher)} title="Print / PDF"><FileText size={16} /></button>
+                  <button className="iconButton" onClick={() => downloadServerPdf(`/vouchers/${voucher._id}/pdf`, `${voucher.voucherNumber}.pdf`)} title="Download PDF"><Download size={16} /></button>
                   <RowActions
                     onEdit={() => {
                       setEditingVoucher(voucher);
@@ -1990,7 +1989,7 @@ function InvoicesView({ user }: { user: User }) {
         columns={["invoiceNumber", "type", "customer", "subtotal", "gstAmount", "totalAmount", "remarks", "status"]}
         moneyColumn="totalAmount"
         renderActions={(invoice) => <>
-          <button className="iconButton" onClick={() => printFinancialDocument("invoice", invoice)} title="Print / PDF"><FileText size={16} /></button>
+          <button className="iconButton" onClick={() => downloadServerPdf(`/invoices/${invoice._id}/pdf`, `${invoice.invoiceNumber}.pdf`)} title="Download PDF"><Download size={16} /></button>
           {isSuperAdmin && <RowActions onEdit={() => editInvoice(invoice)} onDelete={() => deleteInvoice(invoice)} deleteTitle="Cancel" />}
         </>}
       />
@@ -2692,33 +2691,16 @@ function FilePreviewModal({ fileName, data, onClose }: { fileName: string; data:
   );
 }
 
-async function printFinancialDocument(kind: "invoice" | "voucher", value: Invoice | Voucher) {
-  const isInvoice = kind === "invoice";
-  const invoice = value as Invoice;
-  const voucher = value as Voucher;
-  const number = isInvoice ? invoice.invoiceNumber : voucher.voucherNumber;
-  const verification = `${location.origin}/verify/${kind}/${number}`;
-  const qr = await QRCode.toDataURL(verification, { margin: 1, width: 150, errorCorrectionLevel: "M" });
-  const money = (amount: number) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(amount || 0);
-  const rows = isInvoice
-    ? (invoice.lines ?? []).map((line) => `<tr><td>${escapeHtml(line.description)}</td><td>${line.quantity}</td><td>${money(line.unitPrice)}</td><td>${line.gstRate}%</td><td>${money(line.quantity * line.unitPrice * (1 + line.gstRate / 100))}</td></tr>`).join("")
-    : `<tr><td>${escapeHtml(voucher.purpose)}</td><td>${escapeHtml(voucher.receiver || "-")}</td><td>${escapeHtml(voucher.paymentMode || "-")}</td><td>${money(voucher.amount)}</td></tr>`;
-  const popup = window.open("", "_blank", "width=900,height=760");
-  if (!popup) return;
-  popup.document.write(`<!doctype html><html><head><title>${number}</title><style>
-    body{font:14px Arial;color:#111;padding:36px;max-width:850px;margin:auto}header{display:flex;justify-content:space-between;border-bottom:3px solid #2563eb;padding-bottom:18px}.logo{font-size:30px;font-weight:900;color:#2563eb}.meta{text-align:right}table{width:100%;border-collapse:collapse;margin:28px 0}th,td{border:1px solid #ccd5e0;padding:10px;text-align:left}.totals{margin-left:auto;width:310px}.totals p{display:flex;justify-content:space-between}.grand{font-size:18px;font-weight:bold;border-top:2px solid #111;padding-top:10px}.footer{display:flex;justify-content:space-between;align-items:end;margin-top:60px}.signature{text-align:center;border-top:1px solid #111;padding-top:8px;min-width:190px}.qr{text-align:center;font-size:10px}.qr img{width:120px;display:block}.no-print{position:fixed;right:20px;top:20px;padding:10px 18px;background:#2563eb;color:#fff;border:0;border-radius:6px}@media print{.no-print{display:none}}</style></head><body>
-    <button class="no-print" onclick="window.print()">Print / Save PDF</button>
-    <header><div><div class="logo">EFMS</div><strong>Expense & Finance Management System</strong><p>GSTIN: Configure in company settings</p></div><div class="meta"><h1>${isInvoice ? invoice.type.replaceAll("_", " ").toUpperCase() : `${voucher.type.toUpperCase()} VOUCHER`}</h1><strong>${number}</strong><p>${new Date(value.createdAt).toLocaleDateString("en-IN")}</p></div></header>
-    ${isInvoice ? `<h3>Bill To</h3><p><strong>${escapeHtml(invoice.customer)}</strong><br>GSTIN: ${escapeHtml(invoice.customerGst || "N/A")}</p>` : ""}
-    <table><thead><tr>${isInvoice ? "<th>Description</th><th>Qty</th><th>Rate</th><th>GST</th><th>Total</th>" : "<th>Purpose</th><th>Receiver</th><th>Mode</th><th>Amount</th>"}</tr></thead><tbody>${rows}</tbody></table>
-    ${isInvoice ? `<div class="totals"><p><span>Subtotal</span><b>${money(invoice.subtotal)}</b></p><p><span>GST</span><b>${money(invoice.gstAmount)}</b></p><p class="grand"><span>Grand Total</span><b>${money(invoice.totalAmount)}</b></p></div>` : ""}
-    <p><strong>Remarks:</strong> ${escapeHtml(value.remarks || "-")}</p><div class="footer"><div class="qr"><img src="${qr}">Scan to verify<br>${number}</div><div class="signature"><em>Digitally generated</em><br><br><strong>Authorized Signatory</strong></div></div>
-  </body></html>`);
-  popup.document.close();
-}
-
-function escapeHtml(value: string) {
-  return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char] || char));
+async function downloadServerPdf(path: string, fileName: string) {
+  const blob = await apiBlob(path);
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function toDateInputValue(value?: string) {
