@@ -10,8 +10,9 @@
     "dev": "node --watch --import tsx src/server.ts",
     "build": "node scripts/build.mjs",
     "start": "node dist/server.js",
-    "seed": "tsx src/seed.ts",
-    "backup": "tsx src/backup.ts"
+    "seed": "node --import tsx src/seed.ts",
+    "update-admin-password": "node --import tsx src/updateAdminPassword.ts",
+    "backup": "node --import tsx src/backup.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

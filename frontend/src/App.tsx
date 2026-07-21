@@ -26,7 +26,7 @@ import {
   Users,
   XCircle
 } from "lucide-react";
-import { api, clearToken, getToken, rupee, setRefreshToken, setToken, type User } from "./api";
+import { api, apiBlob, clearToken, getToken, rupee, setRefreshToken, setToken, type User } from "./api";
 import type { BankAccount, Budget, Expense, Invoice, MasterOption, OperationalRecord, RoleOption, StatementEntry, Transfer, Voucher } from "./types";
 import type { Earning } from "./types";
 import QRCode from "qrcode";
@@ -45,6 +45,100 @@ type Dashboard = {
 
 const PAGE_SIZE = 10;
 type DashboardCardId = "earnings" | "expenses" | "todayIncome" | "todayExpense" | "bank" | "cash" | "balance" | "vouchers" | "users";
+
+type DialogRequest = {
+  mode: "confirm" | "prompt";
+  title: string;
+  message: string;
+  initialValue?: string;
+  inputType?: "text" | "number" | "email";
+  confirmLabel: string;
+  resolve: (value: boolean | string | null) => void;
+};
+
+function openDialog(request: Omit<DialogRequest, "resolve">) {
+  return new Promise<boolean | string | null>((resolve) => {
+    window.dispatchEvent(new CustomEvent<DialogRequest>("efms:dialog", { detail: { ...request, resolve } }));
+  });
+}
+
+async function confirmPopup(message: string, title = "Please confirm", confirmLabel = "Confirm") {
+  return await openDialog({ mode: "confirm", title, message, confirmLabel }) === true;
+}
+
+async function promptPopup(message: string, initialValue = "", title = "Enter details", inputType: "text" | "number" | "email" = "text") {
+  const result = await openDialog({ mode: "prompt", title, message, initialValue, inputType, confirmLabel: "Continue" });
+  return typeof result === "string" ? result : null;
+}
+
+function DialogHost() {
+  const [dialog, setDialog] = useState<DialogRequest | null>(null);
+  const [value, setValue] = useState("");
+
+  useEffect(() => {
+    const listener = (event: Event) => {
+      const request = (event as CustomEvent<DialogRequest>).detail;
+      setValue(request.initialValue ?? "");
+      setDialog(request);
+    };
+    window.addEventListener("efms:dialog", listener);
+    return () => window.removeEventListener("efms:dialog", listener);
+  }, []);
+
+  useEffect(() => {
+    if (!dialog) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [dialog]);
+
+  function close(result: boolean | string | null) {
+    dialog?.resolve(result);
+    setDialog(null);
+  }
+
+  if (!dialog) return null;
+  return (
+    <div className="dialogBackdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close(null); }}>
+      <div className="dialogCard" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+        <div className="dialogIcon">{dialog.mode === "confirm" ? "!" : <Pencil size={20} />}</div>
+        <div>
+          <h2 id="dialog-title">{dialog.title}</h2>
+          <p>{dialog.message}</p>
+        </div>
+        {dialog.mode === "prompt" && (
+          <input autoFocus type={dialog.inputType ?? "text"} value={value} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") close(value); }} />
+        )}
+        <div className="dialogActions">
+          <button type="button" className="secondary compact" onClick={() => close(null)}>Cancel</button>
+          <button type="button" className={dialog.mode === "confirm" ? "dangerButton compact" : "primary compact"} onClick={() => close(dialog.mode === "confirm" ? true : value)}>{dialog.confirmLabel}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FinanceLoader({ visible }: { visible: boolean }) {
+  if (!visible) return null;
+  return (
+    <div className="financeLoaderBackdrop" role="status" aria-live="polite" aria-label="Loading financial data">
+      <div className="miniFinanceLoader">
+        <div className="cashAnimation" aria-hidden="true">
+          <span className="cashNote noteBack noteBackThree" />
+          <span className="cashNote noteBack noteBackTwo" />
+          <span className="cashNote noteBack noteBackOne" />
+          <span className="cashNote"><i>₹</i><b>EFMS</b></span>
+          <span className="cashCoin coinOne">₹</span>
+          <span className="cashCoin coinTwo">₹</span>
+          <span className="cashCoin coinThree">₹</span>
+        </div>
+        <span className="miniLoaderText">Loading<span>...</span></span>
+      </div>
+    </div>
+  );
+}
 
 const nav = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -82,6 +176,13 @@ export function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem("efms_theme") || "dark");
   const [mobileNav, setMobileNav] = useState(false);
   const [toast, setToast] = useState<{ message: string; tone: string } | null>(null);
+  const [apiLoading, setApiLoading] = useState(false);
+
+  useEffect(() => {
+    const listener = (event: Event) => setApiLoading((event as CustomEvent<{ active: boolean }>).detail.active);
+    window.addEventListener("efms:loading", listener);
+    return () => window.removeEventListener("efms:loading", listener);
+  }, []);
 
   useEffect(() => {
     if (!getToken()) {
@@ -116,11 +217,13 @@ export function App() {
     }
   }, [user, view, visibleNav.map((item) => item.id).join("|")]);
 
-  if (loading) return <div className="splash">Loading EFMS...</div>;
-  if (!user) return <Login onLogin={setUser} />;
+  if (loading) return <><FinanceLoader visible /><DialogHost /></>;
+  if (!user) return <><Login onLogin={setUser} /><FinanceLoader visible={apiLoading} /><DialogHost /></>;
 
   return (
     <div className="shell">
+      <DialogHost />
+      <FinanceLoader visible={apiLoading} />
       {toast && <div className={`toast ${toast.tone}`}>{toast.message}</div>}
       <aside className={`sidebar ${mobileNav ? "open" : ""}`}>
         <div className="brand">
@@ -310,11 +413,11 @@ function OperationalModule({ user, config }: { user: User; config: (typeof modul
   }
 
   async function editRecord(record: OperationalRecord) {
-    const title = window.prompt(config.titleLabel, record.title);
+    const title = await promptPopup(config.titleLabel, record.title, "Edit entry");
     if (title === null) return;
-    const amount = config.amountLabel ? window.prompt(config.amountLabel, String(record.amount)) : String(record.amount);
+    const amount = config.amountLabel ? await promptPopup(config.amountLabel, String(record.amount), "Edit entry", "number") : String(record.amount);
     if (amount === null) return;
-    const remarks = window.prompt("Remarks", record.remarks || "");
+    const remarks = await promptPopup("Remarks", record.remarks || "", "Edit entry");
     if (remarks === null) return;
     await api(`/records/${config.module}/${record._id}`, {
       method: "PATCH",
@@ -324,7 +427,7 @@ function OperationalModule({ user, config }: { user: User; config: (typeof modul
   }
 
   async function deleteRecord(record: OperationalRecord) {
-    if (!window.confirm("Archive this entry?")) return;
+    if (!await confirmPopup("Archive this entry?", "Archive entry")) return;
     await api(`/records/${config.module}/${record._id}`, { method: "DELETE" });
     await load();
   }
@@ -682,7 +785,7 @@ function EarningsView({ user }: { user: User }) {
   }, []);
 
   async function deleteEarning(earning: Earning) {
-    if (!window.confirm("Archive this earning entry?")) return;
+    if (!await confirmPopup("Archive this earning entry?", "Archive earning")) return;
     await api(`/earnings/${earning._id}`, { method: "DELETE" });
     await load();
   }
@@ -880,7 +983,7 @@ function BankAccountsView({ user }: { user: User }) {
   }
 
   async function deleteAccount(account: BankAccount) {
-    if (!window.confirm(`Archive ${account.bankName}?`)) return;
+    if (!await confirmPopup(`Archive ${account.bankName}?`, "Archive bank account")) return;
     await api(`/bank-accounts/${account._id}`, { method: "DELETE" });
     await load();
   }
@@ -993,7 +1096,7 @@ function TransfersView({ user }: { user: User }) {
   }
 
   async function deleteTransfer(transfer: Transfer) {
-    if (!window.confirm("Archive this transfer?")) return;
+    if (!await confirmPopup("Archive this transfer?", "Archive transfer")) return;
     await api(`/transfers/${transfer._id}`, { method: "DELETE" });
     await load();
   }
@@ -1156,9 +1259,7 @@ function ReportsView() {
   }, [query]);
   const max = Math.max(1, ...(data?.monthly.flatMap((item) => [item.income, item.expense]) ?? [1]));
   async function download(format: "csv" | "excel") {
-    const token = getToken();
-    const response = await fetch(`${import.meta.env.VITE_API_BASE ?? "http://localhost:4000/api"}/analytics/export?${query}&format=${format}`, { headers: { Authorization: `Bearer ${token}` } });
-    const blob = await response.blob();
+    const blob = await apiBlob(`/analytics/export?${query}&format=${format}`);
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
     link.download = `efms-report.${format === "csv" ? "csv" : "xls"}`;
@@ -1231,15 +1332,13 @@ function DataSafetyView({ user }: { user: User }) {
   const [otp, setOtp] = useState("");
   if (user.role !== "super_admin") return <div className="emptyState">Only Super Admin can access backups.</div>;
   async function backup() {
-    const response = await fetch(`${import.meta.env.VITE_API_BASE ?? "http://localhost:4000/api"}/data-safety/backup`, { headers: { Authorization: `Bearer ${getToken()}` } });
-    if (!response.ok) throw new Error("Backup failed");
-    const url = URL.createObjectURL(await response.blob());
+    const url = URL.createObjectURL(await apiBlob("/data-safety/backup"));
     const link = document.createElement("a"); link.href = url; link.download = `efms-backup-${new Date().toISOString().slice(0, 10)}.json`; link.click(); URL.revokeObjectURL(url);
     setMessage("Encrypted transport backup downloaded successfully.");
   }
   async function restore(file?: File) {
     if (!file) return;
-    const confirmation = window.prompt('Restore merges backup records into the database. Type "RESTORE EFMS" to continue.');
+    const confirmation = await promptPopup('Type "RESTORE EFMS" to continue.', "", "Confirm database restore");
     if (confirmation !== "RESTORE EFMS") return;
     const backup = JSON.parse(await file.text());
     const result = await api<{ restored: Record<string, number> }>("/data-safety/restore", { method: "POST", body: JSON.stringify({ confirmation, backup }) });
@@ -1292,7 +1391,7 @@ function ExpensesView({ user }: { user: User }) {
   }, []);
 
   async function deleteExpense(expense: Expense) {
-    if (!window.confirm("Archive this expense entry?")) return;
+    if (!await confirmPopup("Archive this expense entry?", "Archive expense")) return;
     await api(`/expenses/${expense._id}`, { method: "DELETE" });
     await load();
   }
@@ -1585,7 +1684,7 @@ function VouchersView({ user }: { user: User }) {
   }, []);
 
   async function deleteVoucher(voucher: Voucher) {
-    if (!window.confirm("Cancel this voucher?")) return;
+    if (!await confirmPopup("Cancel this voucher?", "Cancel voucher", "Cancel Voucher")) return;
     await api(`/vouchers/${voucher._id}`, { method: "DELETE" });
     await load();
   }
@@ -1819,16 +1918,16 @@ function InvoicesView({ user }: { user: User }) {
   }
 
   async function editInvoice(invoice: Invoice) {
-    const customerName = window.prompt("Customer", invoice.customer);
+    const customerName = await promptPopup("Customer", invoice.customer, "Edit invoice");
     if (customerName === null) return;
-    const nextRemarks = window.prompt("Remarks", invoice.remarks || "");
+    const nextRemarks = await promptPopup("Remarks", invoice.remarks || "", "Edit invoice");
     if (nextRemarks === null) return;
     await api(`/invoices/${invoice._id}`, { method: "PATCH", body: JSON.stringify({ customer: customerName, remarks: nextRemarks }) });
     await load();
   }
 
   async function deleteInvoice(invoice: Invoice) {
-    if (!window.confirm("Cancel this invoice?")) return;
+    if (!await confirmPopup("Cancel this invoice?", "Cancel invoice", "Cancel Invoice")) return;
     await api(`/invoices/${invoice._id}`, { method: "DELETE" });
     await load();
   }
@@ -1915,7 +2014,7 @@ function RolesStaffView({ user }: { user: User }) {
   }
 
   async function archiveRole(role: RoleOption) {
-    if (!window.confirm(`Archive role ${role.name}?`)) return;
+    if (!await confirmPopup(`Archive role ${role.name}?`, "Archive role")) return;
     await api(`/roles/${role._id}`, { method: "DELETE" });
     await load();
   }
@@ -2214,14 +2313,14 @@ function MasterOptionManager({
   }
 
   async function editOption(option: MasterOption) {
-    const nextName = window.prompt("Name", option.name);
+    const nextName = await promptPopup("Name", option.name, "Edit option");
     if (!nextName) return;
     await api(`/options/${type}/${option._id}`, { method: "PATCH", body: JSON.stringify({ name: nextName }) });
     await onChanged();
   }
 
   async function deleteOption(option: MasterOption) {
-    if (!window.confirm(`Archive ${option.name}?`)) return;
+    if (!await confirmPopup(`Archive ${option.name}?`, "Archive option")) return;
     await api(`/options/${type}/${option._id}`, { method: "DELETE" });
     await onChanged();
   }
@@ -2440,9 +2539,9 @@ function EmployeeManager({ employees, onChanged, canManage }: { employees: User[
   }
 
   async function editEmployee(employee: User) {
-    const name = window.prompt("Employee name", employee.name);
+    const name = await promptPopup("Employee name", employee.name, "Edit employee");
     if (!name) return;
-    const email = window.prompt("Employee email", employee.email);
+    const email = await promptPopup("Employee email", employee.email, "Edit employee", "email");
     if (!email) return;
     await api(`/users/${employee.id}`, {
       method: "PATCH",
@@ -2452,7 +2551,7 @@ function EmployeeManager({ employees, onChanged, canManage }: { employees: User[
   }
 
   async function deleteEmployee(employee: User) {
-    if (!window.confirm(`Archive ${employee.name}?`)) return;
+    if (!await confirmPopup(`Archive ${employee.name}?`, "Archive employee")) return;
     await api(`/users/${employee.id}`, { method: "DELETE" });
     await onChanged();
   }
