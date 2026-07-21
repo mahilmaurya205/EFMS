@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   ClipboardList,
   DatabaseBackup,
+  Download,
   ArrowLeftRight,
   FolderOpen,
   Pencil,
@@ -1370,6 +1371,7 @@ function ExpensesView({ user }: { user: User }) {
   const [error, setError] = useState("");
   const [filters, setFilters] = useState({ from: "", to: "", payType: "", bankAccount: "", employeeId: "" });
   const [page, setPage] = useState(1);
+  const [proofPreview, setProofPreview] = useState<{ name: string; data: string } | null>(null);
 
   const isSuperAdmin = user.role === "super_admin";
 
@@ -1505,7 +1507,15 @@ function ExpensesView({ user }: { user: User }) {
                 <td>{expense.paidFrom === "employee" ? expense.spentByEmployeeName || "Employee" : "Office"}</td>
                 <td>{expense.paymentMode || ""}</td>
                 <td>{expense.bankAccount || ""}</td>
-                <td>{expense.proofFileName || ""}</td>
+                <td>
+                  {expense.proofFileName ? (
+                    <UploadedFileButton
+                      fileName={expense.proofFileName}
+                      available={Boolean(expense.proofData)}
+                      onView={() => setProofPreview({ name: expense.proofFileName!, data: expense.proofData! })}
+                    />
+                  ) : <span className="muted">No proof</span>}
+                </td>
                 <td>{expense.remarks || ""}</td>
                 <td className="actions">
                   {isSuperAdmin && (
@@ -1525,6 +1535,7 @@ function ExpensesView({ user }: { user: User }) {
         </table>
       </div>
       <Pagination page={page} total={filteredExpenses.length} onPage={setPage} />
+      {proofPreview && <FilePreviewModal fileName={proofPreview.name} data={proofPreview.data} onClose={() => setProofPreview(null)} />}
     </section>
   );
 }
@@ -1544,6 +1555,7 @@ function ExpenseForm({
   onSaved: () => void;
   onCancel: () => void;
 }) {
+  const [proofPreview, setProofPreview] = useState<{ name: string; data: string } | null>(null);
   const [form, setForm] = useState({
     category: initialExpense?.category || categories[0]?.name || "",
     purpose: initialExpense?.purpose || "",
@@ -1593,6 +1605,10 @@ function ExpenseForm({
   async function handleProof(file: File | undefined) {
     if (!file) {
       setForm({ ...form, proofFileName: "", proofData: "" });
+      return;
+    }
+    if (file.size > 1_400_000) {
+      window.dispatchEvent(new CustomEvent("efms:toast", { detail: { message: "Proof file must be smaller than 1.4 MB", tone: "error" } }));
       return;
     }
     const proofData = await fileToDataUrl(file);
@@ -1655,12 +1671,14 @@ function ExpenseForm({
       <label>
         Proof Upload
         <input type="file" accept="image/*,.pdf" onChange={(event) => handleProof(event.target.files?.[0])} />
+        {form.proofFileName && form.proofData && <UploadedFileButton fileName={form.proofFileName} available onView={() => setProofPreview({ name: form.proofFileName, data: form.proofData })} />}
       </label>
       <label className="wide">Remarks<textarea value={form.remarks} onChange={(event) => setForm({ ...form, remarks: event.target.value })} rows={3} /></label>
       <div className="formActions">
         <button className="primary compact">{initialExpense ? "Update Expense" : "Submit"}</button>
         <button className="secondary compact" type="button" onClick={onCancel}>Cancel</button>
       </div>
+      {proofPreview && <FilePreviewModal fileName={proofPreview.name} data={proofPreview.data} onClose={() => setProofPreview(null)} />}
     </form>
   );
 }
@@ -2595,6 +2613,61 @@ function fileToDataUrl(file: File) {
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(file);
   });
+}
+
+function UploadedFileButton({ fileName, available, onView }: { fileName: string; available: boolean; onView: () => void }) {
+  return (
+    <button
+      type="button"
+      className="fileViewButton"
+      onClick={onView}
+      disabled={!available}
+      title={available ? `View ${fileName}` : "File data is unavailable for this older record"}
+    >
+      <Eye size={16} />
+      <span>{fileName}</span>
+    </button>
+  );
+}
+
+function FilePreviewModal({ fileName, data, onClose }: { fileName: string; data: string; onClose: () => void }) {
+  const mimeType = data.match(/^data:([^;,]+)/)?.[1]?.toLowerCase() || "application/octet-stream";
+  const isImage = mimeType.startsWith("image/");
+  const isPdf = mimeType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf");
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  function download() {
+    const link = document.createElement("a");
+    link.href = data;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }
+
+  return (
+    <div className="filePreviewBackdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div className="filePreviewPanel" role="dialog" aria-modal="true" aria-label={`Preview ${fileName}`}>
+        <header>
+          <div><span className="eyebrow">Uploaded Proof</span><strong title={fileName}>{fileName}</strong></div>
+          <div className="buttonRow">
+            <button type="button" className="secondary compact" onClick={download}><Download size={16} /> Download</button>
+            <button type="button" className="iconButton" onClick={onClose} title="Close"><XCircle size={18} /></button>
+          </div>
+        </header>
+        <div className="filePreviewBody">
+          {isImage && <img src={data} alt={fileName} />}
+          {isPdf && !isImage && <iframe src={data} title={fileName} />}
+          {!isImage && !isPdf && <div className="unsupportedPreview"><FileText size={54} /><strong>Preview is not available for this file type</strong><p>{mimeType}</p><button type="button" className="primary compact" onClick={download}><Download size={16} /> Download file</button></div>}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 async function printFinancialDocument(kind: "invoice" | "voucher", value: Invoice | Voucher) {
