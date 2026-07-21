@@ -12,6 +12,14 @@ export const usersRouter = Router();
 
 usersRouter.use(requireAuth);
 
+const strongPasswordSchema = z.string()
+  .min(8, "Password must be at least 8 characters")
+  .max(128)
+  .regex(/[A-Z]/, "Password must include an uppercase letter")
+  .regex(/[a-z]/, "Password must include a lowercase letter")
+  .regex(/[0-9]/, "Password must include a number")
+  .regex(/[^A-Za-z0-9]/, "Password must include a special character");
+
 usersRouter.get(
   "/",
   asyncHandler(async (_req, res) => {
@@ -33,7 +41,7 @@ usersRouter.get(
 const createUserSchema = z.object({
   name: z.string().min(2),
   email: z.string().email(),
-  password: z.string().min(6),
+  password: strongPasswordSchema,
   role: z.string(),
   department: z.string().optional(),
   basicSalary: z.number().optional(),
@@ -50,7 +58,7 @@ usersRouter.post(
   requireRole("super_admin"),
   asyncHandler(async (req, res) => {
     const data = createUserSchema.parse(req.body);
-    const passwordHash = await bcrypt.hash(data.password, 10);
+    const passwordHash = await bcrypt.hash(data.password, 12);
     const user = await User.create({ ...data, phone: encryptSensitive(data.phone), aadharNo: encryptSensitive(data.aadharNo), address: encryptSensitive(data.address), joiningDate: data.joiningDate ? new Date(data.joiningDate) : undefined, email: data.email.toLowerCase(), passwordHash });
     await logActivity(req, { action: "user.create", entityType: "user", entityId: user._id, newValue: { email: user.email, role: user.role } });
     res.status(201).json({ id: user._id, name: user.name, email: user.email, role: user.role });
@@ -74,11 +82,11 @@ usersRouter.patch(
         designation: z.string().optional(),
         joiningDate: z.string().optional(),
         isActive: z.boolean().optional(),
-        password: z.string().min(6).optional()
+        password: strongPasswordSchema.optional()
       })
       .parse(req.body);
 
-    const passwordHash = data.password ? await bcrypt.hash(data.password, 10) : undefined;
+    const passwordHash = data.password ? await bcrypt.hash(data.password, 12) : undefined;
     const { password, ...safeData } = data;
     void password;
     const update = {

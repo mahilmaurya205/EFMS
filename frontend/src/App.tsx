@@ -125,16 +125,8 @@ function FinanceLoader({ visible }: { visible: boolean }) {
   if (!visible) return null;
   return (
     <div className="financeLoaderBackdrop" role="status" aria-live="polite" aria-label="Loading financial data">
-      <div className="miniFinanceLoader">
-        <div className="cashAnimation" aria-hidden="true">
-          <span className="cashNote noteBack noteBackThree" />
-          <span className="cashNote noteBack noteBackTwo" />
-          <span className="cashNote noteBack noteBackOne" />
-          <span className="cashNote"><i>₹</i><b>EFMS</b></span>
-          <span className="cashCoin coinOne">₹</span>
-          <span className="cashCoin coinTwo">₹</span>
-          <span className="cashCoin coinThree">₹</span>
-        </div>
+      <div className="hLogoLoader">
+        <span className="logoMotion" aria-hidden="true"><img src="/assets/htech-logo-transparent.png" alt="" /></span>
         <span className="miniLoaderText">Loading<span>...</span></span>
       </div>
     </div>
@@ -283,7 +275,7 @@ export function App() {
         {view === "reports" && <ReportsView />}
         {view === "budgets" && <BudgetsView user={user} />}
         {view === "reconciliation" && <ReconciliationView user={user} />}
-        {view === "dataSafety" && <DataSafetyView user={user} />}
+        {view === "dataSafety" && <DataSafetyView user={user} onPasswordChanged={() => { clearToken(); setUser(null); }} />}
         {view === "employees" && <EmployeesView user={user} />}
         {view === "roles" && <RolesStaffView user={user} />}
         {view === "vouchers" && <VouchersView user={user} />}
@@ -1327,10 +1319,14 @@ function ReconciliationView({ user }: { user: User }) {
   </section>;
 }
 
-function DataSafetyView({ user }: { user: User }) {
+function DataSafetyView({ user, onPasswordChanged }: { user: User; onPasswordChanged: () => void }) {
   const [message, setMessage] = useState("");
   const [twoFactor, setTwoFactor] = useState<{ secret: string; otpauthUrl: string } | null>(null);
   const [otp, setOtp] = useState("");
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
+  const [showPasswords, setShowPasswords] = useState({ current: false, next: false, confirm: false });
+  const [passwordOtp, setPasswordOtp] = useState("");
+  const [passwordOtpRecipient, setPasswordOtpRecipient] = useState("");
   if (user.role !== "super_admin") return <div className="emptyState">Only Super Admin can access backups.</div>;
   async function backup() {
     const url = URL.createObjectURL(await apiBlob("/data-safety/backup"));
@@ -1353,10 +1349,36 @@ function DataSafetyView({ user }: { user: User }) {
     await api("/auth/2fa/enable", { method: "POST", body: JSON.stringify({ otp }) });
     setTwoFactor(null); setOtp(""); setMessage("Two-factor authentication enabled.");
   }
+  async function requestPasswordOtp(event: React.FormEvent) {
+    event.preventDefault();
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      window.dispatchEvent(new CustomEvent("efms:toast", { detail: { message: "New password and confirmation do not match", tone: "error" } }));
+      return;
+    }
+    const result = await api<{ message: string; recipient: string }>("/auth/change-password/request-otp", {
+      method: "POST",
+      body: JSON.stringify({ currentPassword: passwordForm.currentPassword, newPassword: passwordForm.newPassword })
+    });
+    setPasswordOtpRecipient(result.recipient);
+    setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+    window.dispatchEvent(new CustomEvent("efms:toast", { detail: { message: "Verification OTP sent", tone: "success" } }));
+  }
+  async function verifyPasswordOtp(event: React.FormEvent) {
+    event.preventDefault();
+    await api<{ message: string }>("/auth/change-password/verify-otp", { method: "POST", body: JSON.stringify({ otp: passwordOtp }) });
+    window.dispatchEvent(new CustomEvent("efms:toast", { detail: { message: "Password changed. Please sign in again.", tone: "success" } }));
+    window.setTimeout(onPasswordChanged, 700);
+  }
   return <section><div className="sectionHead"><div><span className="eyebrow">Disaster recovery</span><h2>Backup & Restore</h2></div></div>
     <div className="analyticsGrid"><article className="chartPanel"><h3>Download backup</h3><p className="muted">Exports finance data, users, configuration and integrity-protected audit logs as versioned JSON.</p><button className="primary" onClick={backup}>Download Backup</button></article>
       <article className="chartPanel"><h3>Restore backup</h3><p className="muted">Safely upserts records by ID. Existing audit history is never overwritten.</p><label className="secondary fileButton">Select Backup<input type="file" accept=".json,application/json" onChange={(e) => restore(e.target.files?.[0])} /></label></article>
-      <article className="chartPanel"><h3>Two-factor authentication</h3><p className="muted">Protect this Super Admin account with any TOTP authenticator app.</p>{!twoFactor ? <button className="secondary" onClick={setup2fa}>Set up 2FA</button> : <><p>Enter this secret in your authenticator:</p><code className="secretCode">{twoFactor.secret}</code><label>Verification code<input inputMode="numeric" maxLength={6} value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))} /></label><button className="primary compact" disabled={otp.length !== 6} onClick={enable2fa}>Verify & Enable</button></>}</article></div>
+      <article className="chartPanel"><h3>Two-factor authentication</h3><p className="muted">Protect this Super Admin account with any TOTP authenticator app.</p>{!twoFactor ? <button className="secondary" onClick={setup2fa}>Set up 2FA</button> : <><p>Enter this secret in your authenticator:</p><code className="secretCode">{twoFactor.secret}</code><label>Verification code<input inputMode="numeric" maxLength={6} value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))} /></label><button className="primary compact" disabled={otp.length !== 6} onClick={enable2fa}>Verify & Enable</button></>}</article>
+      <article className="chartPanel passwordSecurityCard"><h3>Change Super Admin password</h3><p className="muted">Email OTP verification is required. All sessions will be signed out after the change.</p>{!passwordOtpRecipient ? <form onSubmit={requestPasswordOtp} autoComplete="off">
+        <label>Current password<span className="passwordField"><input type={showPasswords.current ? "text" : "password"} value={passwordForm.currentPassword} onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })} autoComplete="current-password" required /><button type="button" onClick={() => setShowPasswords({ ...showPasswords, current: !showPasswords.current })} aria-label="Show current password">{showPasswords.current ? <EyeOff size={17} /> : <Eye size={17} />}</button></span></label>
+        <label>New password<span className="passwordField"><input type={showPasswords.next ? "text" : "password"} value={passwordForm.newPassword} onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })} autoComplete="new-password" minLength={8} required /><button type="button" onClick={() => setShowPasswords({ ...showPasswords, next: !showPasswords.next })} aria-label="Show new password">{showPasswords.next ? <EyeOff size={17} /> : <Eye size={17} />}</button></span></label>
+        <label>Confirm new password<span className="passwordField"><input type={showPasswords.confirm ? "text" : "password"} value={passwordForm.confirmPassword} onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })} autoComplete="new-password" minLength={8} required /><button type="button" onClick={() => setShowPasswords({ ...showPasswords, confirm: !showPasswords.confirm })} aria-label="Show confirmation password">{showPasswords.confirm ? <EyeOff size={17} /> : <Eye size={17} />}</button></span></label>
+        <small className="muted">Minimum 8 characters with uppercase, lowercase, number and special character.</small><button className="primary compact">Send Verification OTP</button>
+      </form> : <form className="passwordOtpForm" onSubmit={verifyPasswordOtp}><div className="otpSentBadge"><CheckCircle2 size={21} /><span>OTP sent to <strong>{passwordOtpRecipient}</strong><small>Valid for 10 minutes</small></span></div><label>6-digit verification code<input className="otpInput" inputMode="numeric" pattern="\d{6}" maxLength={6} value={passwordOtp} onChange={(event) => setPasswordOtp(event.target.value.replace(/\D/g, ""))} autoFocus required /></label><div className="buttonRow"><button className="primary compact" disabled={passwordOtp.length !== 6}>Verify & Change Password</button><button type="button" className="secondary compact" onClick={() => { setPasswordOtpRecipient(""); setPasswordOtp(""); }}>Start Over</button></div></form>}</article></div>
     {message && <p className="successBox">{message}</p>}<div className="emptyState"><strong>Automated backups:</strong> schedule <code>npm run backup</code> daily using Task Scheduler or cron. The script retains the latest 14 snapshots.</div>
   </section>;
 }

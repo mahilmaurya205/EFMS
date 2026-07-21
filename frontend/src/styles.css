@@ -249,6 +249,53 @@ button:hover {
   gap: 11px;
 }
 
+.hLogoLoader {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+}
+
+.logoMotion {
+  position: relative;
+  width: 76px;
+  height: 76px;
+  display: grid;
+  place-items: center;
+  animation: hLogoMove 1.15s ease-in-out infinite;
+}
+
+.logoMotion::after {
+  content: "";
+  position: absolute;
+  bottom: -4px;
+  width: 46px;
+  height: 8px;
+  background: rgba(14, 165, 233, .28);
+  border-radius: 50%;
+  filter: blur(5px);
+  animation: hLogoShadow 1.15s ease-in-out infinite;
+}
+
+.logoMotion img {
+  position: relative;
+  z-index: 1;
+  width: 72px;
+  height: 72px;
+  display: block;
+  object-fit: contain;
+  filter: drop-shadow(0 7px 10px rgba(14, 165, 233, .28));
+}
+
+@keyframes hLogoMove {
+  0%, 100% { transform: translateY(2px) rotate(-4deg) scale(.96); }
+  50% { transform: translateY(-9px) rotate(4deg) scale(1.04); }
+}
+
+@keyframes hLogoShadow {
+  0%, 100% { opacity: .75; transform: scaleX(1); }
+  50% { opacity: .3; transform: scaleX(.65); }
+}
+
 .cashAnimation {
   position: relative;
   width: 132px;
@@ -795,6 +842,43 @@ h2 {
 
 .unsupportedPreview svg { color: var(--accent-2); }
 .unsupportedPreview p { margin: 0 0 10px; }
+
+.passwordSecurityCard form {
+  display: grid;
+  gap: 13px;
+  margin-top: 16px;
+}
+
+.passwordSecurityCard form > label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.passwordSecurityCard form > button { justify-self: start; }
+
+.otpSentBadge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  color: var(--success);
+  background: var(--success-soft);
+  border-radius: var(--radius);
+}
+
+.otpSentBadge span { display: grid; }
+.otpSentBadge small { color: var(--muted); }
+
+.passwordSecurityCard .otpInput {
+  max-width: 230px;
+  text-align: center;
+  font-size: 24px;
+  font-weight: 850;
+  letter-spacing: .35em;
+}
 
 @media (max-width: 640px) {
   .filePreviewBackdrop { padding: 8px; }

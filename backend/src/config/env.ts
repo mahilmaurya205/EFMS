@@ -15,6 +15,9 @@ export const env = {
   clientOrigin: process.env.CLIENT_ORIGIN ?? "http://localhost:5173",
   exposeResetToken: process.env.NODE_ENV !== "production"
   ,dataEncryptionKey: process.env.DATA_ENCRYPTION_KEY ?? process.env.JWT_SECRET ?? "dev-data-key-change-me"
+  ,smtpUser: process.env.SMTP_USER ?? ""
+  ,smtpAppPassword: (process.env.SMTP_APP_PASSWORD ?? "").replaceAll(" ", "")
+  ,passwordOtpRecipient: process.env.PASSWORD_OTP_RECIPIENT ?? ""
 };
 
 if (!env.mongodbUri) {
