@@ -4,6 +4,7 @@ import { Invoice } from "../models/Invoice.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { nextDocumentNumber } from "../utils/numbers.js";
+import { generateInvoicePdf } from "../services/pdf.js";
 
 export const invoicesRouter = Router();
 invoicesRouter.use(requireAuth);
@@ -22,6 +23,15 @@ invoicesRouter.get(
     res.json(invoices);
   })
 );
+
+invoicesRouter.get("/:id/pdf", asyncHandler(async (req, res) => {
+  const invoice = await Invoice.findById(req.params.id).lean();
+  if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+  const buffer = await generateInvoicePdf(invoice);
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="${invoice.invoiceNumber}.pdf"`);
+  res.send(buffer);
+}));
 
 invoicesRouter.post(
   "/",

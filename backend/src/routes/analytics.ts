@@ -4,6 +4,7 @@ import { requireAuth, requirePermission } from "../middleware/auth.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { Expense } from "../models/Expense.js";
 import { Earning } from "../models/Earning.js";
+import { generateReportPdf } from "../services/pdf.js";
 
 export const analyticsRouter = Router();
 analyticsRouter.use(requireAuth, requirePermission("reports"));
@@ -94,3 +95,19 @@ analyticsRouter.get(
     return res.send(`<?xml version="1.0"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="EFMS Report"><Table>${xmlRows}</Table></Worksheet></Workbook>`);
   })
 );
+
+analyticsRouter.get("/pdf", asyncHandler(async (req, res) => {
+  const { from, to } = range(req.query);
+  const [expenses, earnings] = await Promise.all([
+    Expense.find({ createdAt: { $gte: from, $lte: to }, status: { $ne: "archived" } }).populate("employeeId", "name").sort({ createdAt: 1 }).lean(),
+    Earning.find({ createdAt: { $gte: from, $lte: to }, status: { $ne: "archived" } }).sort({ createdAt: 1 }).lean()
+  ]);
+  const rows = [
+    ...expenses.map((item) => ({ type: "Expense", date: new Date(item.createdAt).toLocaleDateString("en-IN"), party: item.vendor || (typeof item.employeeId === "object" ? String((item.employeeId as { name?: string }).name ?? "") : ""), category: item.category, amount: item.amount, status: item.status })),
+    ...earnings.map((item) => ({ type: "Income", date: new Date(item.createdAt).toLocaleDateString("en-IN"), party: item.customer, category: item.source, amount: item.paidAmount, status: item.status }))
+  ].sort((a, b) => a.date.localeCompare(b.date));
+  const buffer = await generateReportPdf({ from, to, rows, income: earnings.reduce((sum, item) => sum + item.paidAmount, 0), expense: expenses.reduce((sum, item) => sum + item.amount, 0) });
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="efms-financial-statement-${from.toISOString().slice(0, 10)}.pdf"`);
+  res.send(buffer);
+}));

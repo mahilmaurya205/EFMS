@@ -6,6 +6,7 @@ import { z } from "zod";
 import { nextDocumentNumber } from "../utils/numbers.js";
 import { logActivity } from "../services/activity.js";
 import type { AuthRequest } from "../middleware/auth.js";
+import { generateVoucherPdf } from "../services/pdf.js";
 
 export const vouchersRouter = Router();
 vouchersRouter.use(requireAuth);
@@ -17,6 +18,16 @@ vouchersRouter.get(
     res.json(vouchers);
   })
 );
+
+vouchersRouter.get("/:id/pdf", asyncHandler(async (req: AuthRequest, res) => {
+  const voucher = await Voucher.findById(req.params.id).populate("givenBy", "name").lean();
+  if (!voucher) return res.status(404).json({ message: "Voucher not found" });
+  const buffer = await generateVoucherPdf(voucher);
+  await logActivity(req, { action: "voucher.pdf_download", entityType: "voucher", entityId: voucher._id });
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="${voucher.voucherNumber}.pdf"`);
+  res.send(buffer);
+}));
 
 const voucherPayload = z.object({
   type: z.enum(["payment", "receipt", "journal", "contra", "refund", "salary", "advance", "expense"]).default("payment"),
