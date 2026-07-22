@@ -12,6 +12,8 @@ export type User = {
   name: string;
   email: string;
   role: string;
+  accessRole?: string;
+  employeeProfile?: boolean;
   phone?: string;
   aadharNo?: string;
   address?: string;

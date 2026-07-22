@@ -8,6 +8,7 @@ const userSchema = new Schema(
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     passwordHash: { type: String, required: true },
     role: { type: String, default: "employee", trim: true },
+    accessRole: { type: String, default: "", trim: true },
     department: { type: String, default: "General" },
     managerId: { type: Schema.Types.ObjectId, ref: "User" },
     phone: { type: String, default: "" },

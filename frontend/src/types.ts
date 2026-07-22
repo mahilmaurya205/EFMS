@@ -76,6 +76,7 @@ export type BankAccount = {
   bankName: string;
   accountNumber: string;
   currentBalance: number;
+  openingBalance?: number;
   isActive?: boolean;
   isArchived?: boolean;
   createdAt: string;

@@ -9,6 +9,8 @@ import { Transfer } from "../models/Transfer.js";
 import { Voucher } from "../models/Voucher.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { logActivity } from "../services/activity.js";
+import { BankStatementEntry } from "../models/BankStatementEntry.js";
+import { Payroll } from "../models/Payroll.js";
 
 export const bankAccountsRouter = Router();
 
@@ -65,7 +67,7 @@ bankAccountsRouter.get(
       const voucherTotal = vouchers
         .filter((voucher) => voucher.bankAccount === label || voucher.bankAccount === account.bankName || voucher.bankAccount === account.accountNumber)
         .reduce((sum, voucher) => sum + voucher.amount, 0);
-      return { ...account, isActive: account.isActive !== false, currentBalance: account.currentBalance + earningTotal + bankBookTotal - officeExpenseTotal + transferTotal - voucherTotal };
+      return { ...account, openingBalance: account.currentBalance, isActive: account.isActive !== false, currentBalance: account.currentBalance + earningTotal + bankBookTotal - officeExpenseTotal + transferTotal - voucherTotal };
     });
 
     res.json(accountsWithBalance);
@@ -101,6 +103,18 @@ bankAccountsRouter.delete(
   requireRole("super_admin", "admin", "accountant"),
   asyncHandler(async (req, res) => {
     const oldAccount = await BankAccount.findById(req.params.id).lean();
+    if (!oldAccount) return res.status(404).json({ message: "Bank account not found" });
+    const label = accountLabel(oldAccount);
+    const labelMatch = { $in: [label, oldAccount.bankName, oldAccount.accountNumber] };
+    const [earning, expense, transfer, voucher, bankRecord, statement, payroll] = await Promise.all([
+      Earning.exists({ bankAccount: labelMatch }), Expense.exists({ bankAccount: labelMatch }),
+      Transfer.exists({ bankAccount: labelMatch }), Voucher.exists({ bankAccount: labelMatch }),
+      OperationalRecord.exists({ module: "bank", $or: [{ title: labelMatch }, { "fields.bankName": oldAccount.bankName }, { "fields.accountNumber": oldAccount.accountNumber }] }),
+      BankStatementEntry.exists({ bankAccount: oldAccount._id }), Payroll.exists({ $or: [{ bankAccountId: oldAccount._id }, { bankAccount: labelMatch }] })
+    ]);
+    if ([earning, expense, transfer, voucher, bankRecord, statement, payroll].some(Boolean)) {
+      return res.status(409).json({ message: "This bank account has transaction history and cannot be deleted. You can deactivate it instead." });
+    }
     const account = await BankAccount.findByIdAndUpdate(req.params.id, { isArchived: true }, { new: true });
     if (!account) return res.status(404).json({ message: "Bank account not found" });
     await logActivity(req, { action: "bank_account.archive", entityType: "bank_account", entityId: account._id, oldValue: oldAccount, newValue: account.toObject() });

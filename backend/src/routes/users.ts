@@ -7,6 +7,8 @@ import { Expense } from "../models/Expense.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { logActivity } from "../services/activity.js";
 import { decryptSensitive, encryptSensitive } from "../utils/encryption.js";
+import { Role } from "../models/Role.js";
+import { RefreshSession } from "../models/RefreshSession.js";
 
 export const usersRouter = Router();
 
@@ -74,6 +76,7 @@ usersRouter.patch(
         name: z.string().min(2).optional(),
         email: z.string().email().optional(),
         role: z.string().optional(),
+        accessRole: z.string().trim().optional(),
         department: z.string().optional(),
         basicSalary: z.number().optional(),
         phone: z.string().optional(),
@@ -85,6 +88,9 @@ usersRouter.patch(
         password: strongPasswordSchema.optional()
       })
       .parse(req.body);
+
+    if (data.accessRole && ["super_admin", "employee"].includes(data.accessRole)) return res.status(400).json({ message: "This access role cannot be assigned to an employee" });
+    if (data.accessRole && !await Role.exists({ name: data.accessRole, isActive: true, isArchived: false })) return res.status(400).json({ message: "Selected access role is inactive or unavailable" });
 
     const passwordHash = data.password ? await bcrypt.hash(data.password, 12) : undefined;
     const { password, ...safeData } = data;
@@ -100,6 +106,7 @@ usersRouter.patch(
     const oldUser = await User.findById(req.params.id).select("-passwordHash").lean();
     const user = await User.findByIdAndUpdate(req.params.id, update, { new: true }).select("-passwordHash");
     if (!user) return res.status(404).json({ message: "User not found" });
+    if (data.password !== undefined || data.accessRole !== undefined || data.isActive === false) await RefreshSession.updateMany({ userId: user._id, revokedAt: { $exists: false } }, { $set: { revokedAt: new Date() } });
     await logActivity(req, { action: "user.update", entityType: "user", entityId: user._id, oldValue: oldUser, newValue: user.toObject() });
     const output = user.toObject();
     res.json({ ...output, phone: decryptSensitive(output.phone), aadharNo: decryptSensitive(output.aadharNo), address: decryptSensitive(output.address) });

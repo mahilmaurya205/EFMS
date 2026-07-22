@@ -72,10 +72,11 @@ authRouter.post(
     const user = await User.findOne({ email: data.email.toLowerCase() }).select("+twoFactorSecret");
     if (!user) return res.status(401).json({ message: "Invalid credentials" });
     if (!user.isActive) return res.status(401).json({ message: "User is inactive" });
-    if (user.role === "employee") return res.status(403).json({ message: "Employee login is disabled" });
+    const effectiveRole = user.role === "employee" ? String(user.accessRole || "") : user.role;
+    if (!effectiveRole) return res.status(403).json({ message: "Employee login access is not enabled" });
     let permissions = { sidebar: [] as string[], dashboard: [] as string[], actions: [] as string[] };
-    if (user.role !== "super_admin") {
-      const role = await Role.findOne({ name: user.role, isActive: true, isArchived: false }).lean();
+    if (effectiveRole !== "super_admin") {
+      const role = await Role.findOne({ name: effectiveRole, isActive: true, isArchived: false }).lean();
       if (!role) return res.status(403).json({ message: "Role is inactive or unavailable" });
       permissions = {
         sidebar: role.sidebarPermissions ?? [],
@@ -94,11 +95,11 @@ authRouter.post(
     const token = accessToken(user._id);
     const refreshToken = await createRefreshToken(user._id, req);
     setRefreshCookie(res, refreshToken);
-    await logActivity(req, { action: "auth.login", entityType: "user", entityId: user._id, userId: user._id, newValue: { email: user.email, role: user.role } });
+    await logActivity(req, { action: "auth.login", entityType: "user", entityId: user._id, userId: user._id, newValue: { email: user.email, role: effectiveRole, employeeProfile: user.role === "employee" } });
 
     return res.json({
       token,
-      user: { id: user._id, name: user.name, email: user.email, role: user.role, permissions }
+      user: { id: user._id, name: user.name, email: user.email, role: effectiveRole, employeeProfile: user.role === "employee", permissions }
     });
   })
 );

@@ -14,7 +14,7 @@ vouchersRouter.use(requireAuth, requirePermission("vouchers"));
 vouchersRouter.get(
   "/",
   asyncHandler(async (_req, res) => {
-    const vouchers = await Voucher.find().populate("givenBy", "name").sort({ createdAt: -1 }).lean();
+    const vouchers = await Voucher.find({ sourceType: { $ne: "payroll" } }).populate("givenBy", "name").sort({ createdAt: -1 }).lean();
     res.json(vouchers);
   })
 );

@@ -174,6 +174,10 @@ function canAction(user: User, action: string) {
   return user.role === "super_admin" || Boolean(user.permissions?.actions?.includes(action));
 }
 
+function sensitiveFormValue(value?: string) {
+  return value === "[encrypted data unavailable]" ? "" : value || "";
+}
+
 export function App() {
   const [user, setUser] = useState<User | null>(null);
   const [view, setView] = useState("dashboard");
@@ -232,7 +236,7 @@ export function App() {
       {toast && <div className={`toast ${toast.tone}`}>{toast.message}</div>}
       <aside className={`sidebar ${mobileNav ? "open" : ""}`}>
         <div className="brand">
-          <ShieldCheck size={26} />
+          <img className="brandLogo" src="/assets/htech-logo-transparent.png" alt="Htech logo" />
           <div>
             <strong>EFMS</strong>
             <span>Finance Control</span>
@@ -532,31 +536,38 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
 
   return (
     <div className="loginPage">
-      <form className="loginPanel" onSubmit={submit} autoComplete="off">
-        <div className="brand large">
-          <ShieldCheck size={32} />
-          <div>
-            <strong>EFMS</strong>
-            <span>Expense & Finance Management System</span>
+      <div className="loginGlow loginGlowOne" />
+      <div className="loginGlow loginGlowTwo" />
+      <section className="loginShell">
+        <div className="loginShowcase">
+          <div className="loginBrand"><span><img src="/assets/htech-logo-transparent.png" alt="Htech logo" /></span><strong>EFMS</strong></div>
+          <div className="loginPitch">
+            <span className="loginEyebrow">FINANCE, SIMPLIFIED</span>
+            <h1>Every rupee.<br /><em>Under control.</em></h1>
+            <p>Track expenses, manage cash flow and keep your financial operations secure—all from one workspace.</p>
           </div>
+          <div className="loginPreview" aria-hidden="true">
+            <div className="loginPreviewTop"><span>Financial overview</span><span className="livePill">● LIVE</span></div>
+            <div className="loginMetricGrid">
+              <article><span><TrendingUp size={16} /> Income</span><strong>₹ 8.4L</strong><small>↑ 12.8% this month</small></article>
+              <article><span><ReceiptText size={16} /> Expenses</span><strong>₹ 3.1L</strong><small>Within monthly budget</small></article>
+            </div>
+            <div className="loginBars"><i /><i /><i /><i /><i /><i /><i /></div>
+          </div>
+          <div className="loginTrust"><ShieldCheck size={16} /><span>Protected by secure sessions and role-based access</span></div>
         </div>
-        <label>
-          Email
-          <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="off" placeholder="Enter your email" required />
-        </label>
-        {needsOtp && <label>Authenticator Code<input inputMode="numeric" pattern="\d{6}" maxLength={6} value={otp} onChange={(event) => setOtp(event.target.value.replace(/\D/g, ""))} placeholder="6-digit code" autoFocus /></label>}
-        <label>
-          Password
-          <span className="passwordField">
-            <input type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" placeholder="Enter your password" required />
-            <button type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? "Hide password" : "Show password"} title={showPassword ? "Hide password" : "Show password"}>
-              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-            </button>
-          </span>
-        </label>
-        {error && <p className="error">{error}</p>}
-        <button className="primary">Login</button>
-      </form>
+        <div className="loginFormSide">
+          <form className="loginPanel" onSubmit={submit} autoComplete="off">
+            <div className="loginWelcome"><span className="loginMobileBrand"><img src="/assets/htech-logo-transparent.png" alt="Htech logo" /> EFMS</span><h2>Welcome back</h2><p>Enter your credentials to access your account.</p></div>
+            <label>Email address<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="off" placeholder="name@company.com" required /></label>
+            {needsOtp && <label>Authenticator code<input inputMode="numeric" pattern="\d{6}" maxLength={6} value={otp} onChange={(event) => setOtp(event.target.value.replace(/\D/g, ""))} placeholder="Enter 6-digit code" autoFocus /></label>}
+            <label>Password<span className="passwordField"><input type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" placeholder="Enter your password" required /><button type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? "Hide password" : "Show password"} title={showPassword ? "Hide password" : "Show password"}>{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button></span></label>
+            {error && <p className="loginError"><XCircle size={16} />{error}</p>}
+            <button className="primary loginSubmit">Sign in securely <span>→</span></button>
+            <p className="loginHelp">Having trouble signing in? Contact your administrator.</p>
+          </form>
+        </div>
+      </section>
     </div>
   );
 }
@@ -962,6 +973,7 @@ function EarningForm({
 function BankAccountsView({ user }: { user: User }) {
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
   const [editingAccount, setEditingAccount] = useState<BankAccount | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState({ bankName: "", accountNumber: "", currentBalance: 0 });
   const [filters, setFilters] = useState({ from: "", to: "", status: "" });
   const [page, setPage] = useState(1);
@@ -977,7 +989,8 @@ function BankAccountsView({ user }: { user: User }) {
 
   function startEdit(account: BankAccount) {
     setEditingAccount(account);
-    setForm({ bankName: account.bankName, accountNumber: account.accountNumber, currentBalance: account.currentBalance });
+    setForm({ bankName: account.bankName, accountNumber: account.accountNumber, currentBalance: account.openingBalance ?? account.currentBalance });
+    setFormOpen(true);
   }
 
   async function submit(event: React.FormEvent) {
@@ -988,11 +1001,12 @@ function BankAccountsView({ user }: { user: User }) {
     });
     setEditingAccount(null);
     setForm({ bankName: "", accountNumber: "", currentBalance: 0 });
+    setFormOpen(false);
     await load();
   }
 
   async function deleteAccount(account: BankAccount) {
-    if (!await confirmPopup(`Archive ${account.bankName}?`, "Archive bank account")) return;
+    if (!await confirmPopup(`Delete ${account.bankName}? This is allowed only when the account has no transaction history.`, "Delete bank account", "Delete")) return;
     await api(`/bank-accounts/${account._id}`, { method: "DELETE" });
     await load();
   }
@@ -1015,16 +1029,17 @@ function BankAccountsView({ user }: { user: User }) {
           <span className="eyebrow">Accounts</span>
           <h2>Bank Accounts</h2>
         </div>
+        {isSuperAdmin && <button className="primary compact" onClick={() => { if (formOpen && !editingAccount) { setFormOpen(false); } else { setEditingAccount(null); setForm({ bankName: "", accountNumber: "", currentBalance: 0 }); setFormOpen(true); } }}><Plus size={16} /> {formOpen && !editingAccount ? "Close Form" : "Create Bank"}</button>}
       </div>
-      <form className="formGrid" onSubmit={submit}>
+      {formOpen && <form className="formGrid" onSubmit={submit}>
         <label>Bank Name<input value={form.bankName} onChange={(event) => setForm({ ...form, bankName: event.target.value })} required /></label>
         <label>Account Number<input value={form.accountNumber} onChange={(event) => setForm({ ...form, accountNumber: event.target.value })} required /></label>
         <label>Opening Balance<input type="number" value={form.currentBalance} onChange={(event) => setForm({ ...form, currentBalance: Number(event.target.value) })} /></label>
         <div className="formActions">
           <button className="primary compact">{editingAccount ? "Update Account" : "Create Account"}</button>
-          {editingAccount && <button className="secondary compact" type="button" onClick={() => { setEditingAccount(null); setForm({ bankName: "", accountNumber: "", currentBalance: 0 }); }}>Cancel</button>}
+          <button className="secondary compact" type="button" onClick={() => { setEditingAccount(null); setForm({ bankName: "", accountNumber: "", currentBalance: 0 }); setFormOpen(false); }}>Cancel</button>
         </div>
-      </form>
+      </form>}
       <FilterBar>
         <label>From Date<input type="date" value={filters.from} onChange={(event) => { setFilters({ ...filters, from: event.target.value }); setPage(1); }} /></label>
         <label>To Date<input type="date" value={filters.to} onChange={(event) => { setFilters({ ...filters, to: event.target.value }); setPage(1); }} /></label>
@@ -1049,7 +1064,7 @@ function BankAccountsView({ user }: { user: User }) {
             ) : (
               <button className="iconButton bad" onClick={() => setBankActive(account, false)} title="Deactivate"><XCircle size={16} /></button>
             )}
-            <button className="iconButton bad" onClick={() => deleteAccount(account)} title="Archive"><Trash2 size={16} /></button>
+            <button className="iconButton bad" onClick={() => deleteAccount(account)} title="Delete if unused"><Trash2 size={16} /></button>
           </>
         ) : undefined}
       />
@@ -2030,6 +2045,9 @@ function UsersView() {
 function RolesStaffView({ user }: { user: User }) {
   const [roles, setRoles] = useState<RoleOption[]>([]);
   const [staff, setStaff] = useState<User[]>([]);
+  const [employees, setEmployees] = useState<User[]>([]);
+  const [staffMode, setStaffMode] = useState<"new" | "employee">("new");
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
   const [editingRole, setEditingRole] = useState<RoleOption | null>(null);
   const [editingStaff, setEditingStaff] = useState<User | null>(null);
   const [roleForm, setRoleForm] = useState({ name: "", description: "", sidebarPermissions: [] as string[], dashboardPermissions: [] as string[], actionPermissions: [] as string[] });
@@ -2038,7 +2056,8 @@ function RolesStaffView({ user }: { user: User }) {
   async function load() {
     const [roleData, userData] = await Promise.all([api<RoleOption[]>("/roles"), api<User[]>("/users")]);
     setRoles(roleData);
-    setStaff(userData.filter((item) => item.role !== "employee" && item.role !== "super_admin").map((item) => ({ ...item, id: item.id || item._id || "" })));
+    setEmployees(userData.filter((item) => item.role === "employee").map((item) => ({ ...item, id: item.id || item._id || "" })));
+    setStaff(userData.filter((item) => (item.role !== "employee" && item.role !== "super_admin") || (item.role === "employee" && item.accessRole)).map((item) => ({ ...item, id: item.id || item._id || "" })));
   }
 
   useEffect(() => {
@@ -2056,6 +2075,8 @@ function RolesStaffView({ user }: { user: User }) {
 
   function resetStaffForm() {
     setEditingStaff(null);
+    setStaffMode("new");
+    setSelectedEmployeeId("");
     setStaffForm({ name: "", email: "", password: "", role: "", phone: "", designation: "", department: "General" });
   }
 
@@ -2082,20 +2103,19 @@ function RolesStaffView({ user }: { user: User }) {
 
   async function saveStaff(event: React.FormEvent) {
     event.preventDefault();
-    await api(editingStaff ? `/users/${editingStaff.id}` : "/users", {
-      method: editingStaff ? "PATCH" : "POST",
-      body: JSON.stringify(cleanPayload({
-        ...staffForm,
-        password: editingStaff && !staffForm.password ? "" : staffForm.password,
-        isActive: editingStaff?.isActive ?? true
-      }))
-    });
+    const employeeId = staffMode === "employee" ? (selectedEmployeeId || editingStaff?.id) : "";
+    if (staffMode === "employee" && !employeeId) return;
+    const target = employeeId || editingStaff?.id;
+    const payload = staffMode === "employee"
+      ? { name: staffForm.name, email: staffForm.email, phone: staffForm.phone || undefined, designation: staffForm.designation, department: staffForm.department, accessRole: staffForm.role, password: staffForm.password || undefined, isActive: true }
+      : { ...staffForm, password: editingStaff && !staffForm.password ? undefined : staffForm.password, isActive: editingStaff?.isActive ?? true };
+    await api(target ? `/users/${target}` : "/users", { method: target ? "PATCH" : "POST", body: JSON.stringify(cleanPayload(payload)) });
     resetStaffForm();
     await load();
   }
 
   async function setStaffActive(staffUser: User, isActive: boolean) {
-    await api(`/users/${staffUser.id}`, { method: "PATCH", body: JSON.stringify({ isActive }) });
+    await api(`/users/${staffUser.id}`, { method: "PATCH", body: JSON.stringify(staffUser.role === "employee" ? { accessRole: isActive ? staffUser.accessRole : "" } : { isActive }) });
     await load();
   }
 
@@ -2150,6 +2170,24 @@ function RolesStaffView({ user }: { user: User }) {
         </div>
       </div>
       <form className="formGrid" onSubmit={saveStaff}>
+        <label>
+          Account Type
+          <select value={staffMode} onChange={(event) => { const mode = event.target.value as "new" | "employee"; resetStaffForm(); setStaffMode(mode); }} disabled={Boolean(editingStaff)}>
+            <option value="new">Create new staff</option>
+            <option value="employee">Give login to employee</option>
+          </select>
+        </label>
+        {staffMode === "employee" && !editingStaff && <label>
+          Select Employee
+          <select value={selectedEmployeeId} onChange={(event) => {
+            const id = event.target.value; setSelectedEmployeeId(id);
+            const employee = employees.find((item) => item.id === id);
+            if (employee) setStaffForm({ name: employee.name || "", email: employee.email || "", password: "", role: employee.accessRole || "", phone: sensitiveFormValue(employee.phone), designation: employee.designation || "", department: employee.department || "General" });
+          }} required>
+            <option value="" disabled>Select existing employee</option>
+            {employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name} - {employee.email}</option>)}
+          </select>
+        </label>}
         <label>Name<input value={staffForm.name} onChange={(event) => setStaffForm({ ...staffForm, name: event.target.value })} required /></label>
         <label>Email<input type="email" value={staffForm.email} onChange={(event) => setStaffForm({ ...staffForm, email: event.target.value })} required /></label>
         <label>Password<input type="password" value={staffForm.password} onChange={(event) => setStaffForm({ ...staffForm, password: event.target.value })} required={!editingStaff} placeholder={editingStaff ? "Leave blank to keep old password" : ""} /></label>
@@ -2160,29 +2198,31 @@ function RolesStaffView({ user }: { user: User }) {
             {roles.filter((role) => role.isActive).map((role) => <option key={role._id} value={role.name}>{role.name}</option>)}
           </select>
         </label>
-        <label>Phone<input value={staffForm.phone} onChange={(event) => setStaffForm({ ...staffForm, phone: event.target.value })} /></label>
+        <label>Phone<input value={staffForm.phone} onChange={(event) => setStaffForm({ ...staffForm, phone: event.target.value })} placeholder={staffMode === "employee" ? "Re-enter only if required" : "Enter phone number"} /></label>
         <label>Designation<input value={staffForm.designation} onChange={(event) => setStaffForm({ ...staffForm, designation: event.target.value })} /></label>
         <label>Department<input value={staffForm.department} onChange={(event) => setStaffForm({ ...staffForm, department: event.target.value })} /></label>
         <div className="formActions">
-          <button className="primary compact">{editingStaff ? "Update Staff" : "Create Staff"}</button>
+          <button className="primary compact">{editingStaff ? "Update Login Access" : staffMode === "employee" ? "Enable Employee Login" : "Create Staff"}</button>
           {editingStaff && <button type="button" className="secondary compact" onClick={resetStaffForm}>Cancel</button>}
         </div>
       </form>
       <SimpleTable
         rows={staff}
-        columns={["name", "email", "role", "phone", "designation", "department", "isActive"]}
+        columns={["name", "email", "role", "accessRole", "phone", "designation", "department", "isActive"]}
         renderActions={(staffUser) => (
           <>
             <button
               className="iconButton"
               onClick={() => {
                 setEditingStaff(staffUser);
+                setStaffMode(staffUser.role === "employee" ? "employee" : "new");
+                setSelectedEmployeeId(staffUser.role === "employee" ? staffUser.id : "");
                 setStaffForm({
                   name: staffUser.name || "",
                   email: staffUser.email || "",
                   password: "",
-                  role: staffUser.role || "",
-                  phone: staffUser.phone || "",
+                  role: staffUser.role === "employee" ? staffUser.accessRole || "" : staffUser.role || "",
+                  phone: sensitiveFormValue(staffUser.phone),
                   designation: staffUser.designation || "",
                   department: staffUser.department || "General"
                 });
@@ -2191,12 +2231,11 @@ function RolesStaffView({ user }: { user: User }) {
             >
               <Pencil size={16} />
             </button>
-            {staffUser.isActive === false ? (
+            {staffUser.role !== "employee" && staffUser.isActive === false ? (
               <button className="iconButton good" onClick={() => setStaffActive(staffUser, true)} title="Activate"><CheckCircle2 size={16} /></button>
             ) : (
-              <button className="iconButton bad" onClick={() => setStaffActive(staffUser, false)} title="Deactivate"><XCircle size={16} /></button>
+              <button className="iconButton bad" onClick={() => setStaffActive(staffUser, false)} title={staffUser.role === "employee" ? "Revoke login access" : "Deactivate"}><XCircle size={16} /></button>
             )}
-            <button className="iconButton bad" onClick={() => setStaffActive(staffUser, false)} title="Delete"><Trash2 size={16} /></button>
           </>
         )}
       />

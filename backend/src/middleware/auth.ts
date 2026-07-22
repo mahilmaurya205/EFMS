@@ -29,10 +29,11 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
     if (payload.type !== "access") return res.status(401).json({ message: "Invalid token" });
     const user = await User.findById(payload.sub).lean();
     if (!user || !user.isActive) return res.status(401).json({ message: "Invalid session" });
-    if (user.role === "employee") return res.status(403).json({ message: "Employee login is disabled" });
+    const effectiveRole = user.role === "employee" ? String(user.accessRole || "") : user.role;
+    if (!effectiveRole) return res.status(403).json({ message: "Employee login access is not enabled" });
     let permissions = { sidebar: [] as string[], dashboard: [] as string[], actions: [] as string[] };
-    if (user.role !== "super_admin") {
-      const role = await Role.findOne({ name: user.role, isActive: true, isArchived: false }).lean();
+    if (effectiveRole !== "super_admin") {
+      const role = await Role.findOne({ name: effectiveRole, isActive: true, isArchived: false }).lean();
       if (!role) return res.status(403).json({ message: "Role is inactive or unavailable" });
       permissions = {
         sidebar: role.sidebarPermissions ?? [],
@@ -42,7 +43,7 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
     }
     req.user = {
       id: String(user._id),
-      role: user.role,
+      role: effectiveRole,
       name: user.name,
       email: user.email,
       permissions

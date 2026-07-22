@@ -19,7 +19,7 @@ export const env = {
   ,smtpUser: process.env.SMTP_USER ?? ""
   ,smtpAppPassword: (process.env.SMTP_APP_PASSWORD ?? "").replaceAll(" ", "")
   ,passwordOtpRecipient: process.env.PASSWORD_OTP_RECIPIENT ?? ""
-  ,companyName: process.env.COMPANY_NAME ?? "Htech Solution"
+  ,companyName: process.env.COMPANY_NAME ?? "Htech Solutions Pvt. Ltd."
   ,companyGstin: process.env.COMPANY_GSTIN ?? ""
   ,companyAddress: process.env.COMPANY_ADDRESS ?? ""
   ,companyEmail: process.env.COMPANY_EMAIL ?? ""

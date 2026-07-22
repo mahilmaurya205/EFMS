@@ -34,7 +34,7 @@ dashboardRouter.get(
       Transfer.aggregate([{ $match: { status: { $ne: "archived" }, type: "cash_to_bank" } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
       Transfer.aggregate([{ $match: { status: { $ne: "archived" }, type: "bank_to_cash" } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
       User.countDocuments(),
-      Voucher.countDocuments(),
+      Voucher.countDocuments({ sourceType: { $ne: "payroll" } }),
       CashEntry.find().lean(),
       BankAccount.find({ isArchived: false, isActive: { $ne: false } }).lean(),
       OperationalRecord.find({ module: "bank", status: { $ne: "archived" } }).lean(),
