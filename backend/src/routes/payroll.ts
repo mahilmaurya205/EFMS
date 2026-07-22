@@ -1,7 +1,7 @@
 import { Router } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
-import { requireAction, requireAuth, requirePermission, type AuthRequest } from "../middleware/auth.js";
+import { requireAction, requireAnyPermission, requireAuth, requirePermission, type AuthRequest } from "../middleware/auth.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { Payroll } from "../models/Payroll.js";
 import { User } from "../models/User.js";
@@ -17,7 +17,7 @@ import { Earning } from "../models/Earning.js";
 import { Transfer } from "../models/Transfer.js";
 
 export const payrollRouter = Router();
-payrollRouter.use(requireAuth, requirePermission("payroll"));
+payrollRouter.use(requireAuth);
 
 const createSchema = z.object({
   employeeId: z.string().min(1), salaryMonth: z.string().regex(/^\d{4}-\d{2}$/),
@@ -28,15 +28,15 @@ const createSchema = z.object({
   if (value.paymentMode === "bank" && !value.bankAccountId) ctx.addIssue({ code: "custom", path: ["bankAccountId"], message: "Bank account is required" });
 });
 
-payrollRouter.get("/", asyncHandler(async (_req, res) => {
+payrollRouter.get("/", requireAnyPermission("payroll", "statements"), asyncHandler(async (_req, res) => {
   res.json(await Payroll.find().populate("employeeId", "name email department designation").sort({ paymentDate: -1, createdAt: -1 }).lean());
 }));
 
-payrollRouter.get("/eligible-expenses/:employeeId", asyncHandler(async (req, res) => {
+payrollRouter.get("/eligible-expenses/:employeeId", requirePermission("payroll"), asyncHandler(async (req, res) => {
   res.json(await Expense.find({ spentByEmployeeId: req.params.employeeId, paidFrom: "employee", payrollId: { $exists: false }, status: { $nin: ["archived", "rejected"] } }).select("purpose category amount expectedDate createdAt").sort({ createdAt: 1 }).lean());
 }));
 
-payrollRouter.post("/", requireAction("payroll.create"), asyncHandler(async (req: AuthRequest, res) => {
+payrollRouter.post("/", requirePermission("payroll"), requireAction("payroll.create"), asyncHandler(async (req: AuthRequest, res) => {
   const data = createSchema.parse(req.body);
   const employee = await User.findOne({ _id: data.employeeId, role: "employee", isActive: { $ne: false } }).lean();
   if (!employee) return res.status(404).json({ message: "Active employee not found" });
@@ -85,7 +85,7 @@ payrollRouter.post("/", requireAction("payroll.create"), asyncHandler(async (req
   res.status(201).json(await Payroll.findById(payroll._id).populate("employeeId", "name email department designation").lean());
 }));
 
-payrollRouter.get("/:id/pdf", asyncHandler(async (req, res) => {
+payrollRouter.get("/:id/pdf", requirePermission("payroll"), asyncHandler(async (req, res) => {
   const payroll = await Payroll.findById(req.params.id).populate("employeeId", "name email department designation").lean();
   if (!payroll) return res.status(404).json({ message: "Payroll not found" });
   const pdf = await generateSalarySlipPdf(payroll as any);

@@ -1190,15 +1190,17 @@ function StatementsView() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [vouchers, setVouchers] = useState<Voucher[]>([]);
+  const [payrolls, setPayrolls] = useState<Payroll[]>([]);
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
 
   useEffect(() => {
-    Promise.all([api<Earning[]>("/earnings"), api<Expense[]>("/expenses"), api<Transfer[]>("/transfers"), api<Voucher[]>("/vouchers"), api<BankAccount[]>("/bank-accounts")]).then(([earningData, expenseData, transferData, voucherData, accountData]) => {
+    Promise.all([api<Earning[]>("/earnings"), api<Expense[]>("/expenses"), api<Transfer[]>("/transfers"), api<Voucher[]>("/vouchers"), api<BankAccount[]>("/bank-accounts"), api<Payroll[]>("/payroll")]).then(([earningData, expenseData, transferData, voucherData, accountData, payrollData]) => {
       setEarnings(earningData);
       setExpenses(expenseData);
       setTransfers(transferData);
       setVouchers(voucherData);
       setBankAccounts(accountData);
+      setPayrolls(payrollData);
     });
   }, []);
 
@@ -1206,14 +1208,16 @@ function StatementsView() {
     ...earnings.filter((earning) => earning.status !== "archived" && earning.paymentMode !== "cash").map((earning) => ({ date: earning.createdAt, timestamp: earning.createdAt, type: "Earning", bankAccount: earning.bankAccount || "Unlinked Bank", particulars: earning.customer, credit: earning.paidAmount, debit: 0, referenceNo: earning.referenceNo || "", remarks: earning.remarks || "" })),
     ...expenses.filter((expense) => expense.status !== "archived" && expense.paidFrom === "office" && expense.paymentMode === "bank").map((expense) => ({ date: expense.createdAt, timestamp: expense.createdAt, type: "Expense", bankAccount: expense.bankAccount || "Unlinked Bank", particulars: expense.purpose, credit: 0, debit: expense.amount, referenceNo: "", remarks: expense.remarks || "" })),
     ...transfers.filter((transfer) => transfer.status !== "archived").map((transfer) => ({ date: transfer.transferDate, timestamp: transfer.createdAt, type: transfer.type === "cash_to_bank" ? "Cash Deposit" : "Cash Withdrawal", bankAccount: transfer.bankAccount, particulars: transfer.type === "cash_to_bank" ? "Cash to Bank" : "Bank to Cash", credit: transfer.type === "cash_to_bank" ? transfer.amount : 0, debit: transfer.type === "bank_to_cash" ? transfer.amount : 0, referenceNo: transfer.referenceNo || "", remarks: transfer.remarks || "" })),
-    ...vouchers.filter((voucher) => voucher.status === "issued" && voucher.type !== "receipt" && voucher.paymentMode === "bank").map((voucher) => ({ date: voucher.createdAt, timestamp: voucher.createdAt, type: "Voucher Payment", bankAccount: voucher.bankAccount || "Unlinked Bank", particulars: voucher.purpose, credit: 0, debit: voucher.amount, referenceNo: voucher.referenceNo || voucher.voucherNumber, remarks: voucher.receiver || "" }))
+    ...vouchers.filter((voucher) => voucher.status === "issued" && voucher.type !== "receipt" && voucher.paymentMode === "bank").map((voucher) => ({ date: voucher.createdAt, timestamp: voucher.createdAt, type: "Voucher Payment", bankAccount: voucher.bankAccount || "Unlinked Bank", particulars: voucher.purpose, credit: 0, debit: voucher.amount, referenceNo: voucher.referenceNo || voucher.voucherNumber, remarks: voucher.receiver || "" })),
+    ...payrolls.filter((payroll) => payroll.status === "paid" && payroll.paymentMode === "bank").map((payroll) => ({ date: payroll.paymentDate, timestamp: payroll.paymentDate, type: "Salary Payment", bankAccount: payroll.bankAccount || "Unlinked Bank", particulars: `${payroll.employeeId?.name || "Employee"} - Salary ${payroll.salaryMonth}`, credit: 0, debit: payroll.totalPaid, referenceNo: payroll.referenceNo || payroll.payrollNumber, remarks: payroll.includeExpenses ? `Salary + reimbursement ${rupee(payroll.reimbursementAmount)}` : "Salary only" }))
   ];
 
   const cashRows = [
     ...earnings.filter((earning) => earning.status !== "archived" && earning.paymentMode === "cash").map((earning) => ({ date: earning.createdAt, timestamp: earning.createdAt, type: "Cash Earning", particulars: earning.customer, credit: earning.paidAmount, debit: 0, referenceNo: earning.referenceNo || "", remarks: earning.remarks || "" })),
     ...expenses.filter((expense) => expense.status !== "archived" && expense.paidFrom === "office" && expense.paymentMode === "cash").map((expense) => ({ date: expense.createdAt, timestamp: expense.createdAt, type: "Cash Expense", particulars: expense.purpose, credit: 0, debit: expense.amount, referenceNo: "", remarks: expense.remarks || "" })),
     ...transfers.filter((transfer) => transfer.status !== "archived").map((transfer) => ({ date: transfer.transferDate, timestamp: transfer.createdAt, type: transfer.type === "cash_to_bank" ? "Cash Deposit to Bank" : "Cash Withdrawal from Bank", particulars: transfer.bankAccount, credit: transfer.type === "bank_to_cash" ? transfer.amount : 0, debit: transfer.type === "cash_to_bank" ? transfer.amount : 0, referenceNo: transfer.referenceNo || "", remarks: transfer.remarks || "" })),
-    ...vouchers.filter((voucher) => voucher.status === "issued" && voucher.type !== "receipt" && voucher.paymentMode === "cash").map((voucher) => ({ date: voucher.createdAt, timestamp: voucher.createdAt, type: "Voucher Payment", particulars: voucher.purpose, credit: 0, debit: voucher.amount, referenceNo: voucher.referenceNo || voucher.voucherNumber, remarks: voucher.receiver || "" }))
+    ...vouchers.filter((voucher) => voucher.status === "issued" && voucher.type !== "receipt" && voucher.paymentMode === "cash").map((voucher) => ({ date: voucher.createdAt, timestamp: voucher.createdAt, type: "Voucher Payment", particulars: voucher.purpose, credit: 0, debit: voucher.amount, referenceNo: voucher.referenceNo || voucher.voucherNumber, remarks: voucher.receiver || "" })),
+    ...payrolls.filter((payroll) => payroll.status === "paid" && payroll.paymentMode === "cash").map((payroll) => ({ date: payroll.paymentDate, timestamp: payroll.paymentDate, type: "Salary Payment", particulars: `${payroll.employeeId?.name || "Employee"} - Salary ${payroll.salaryMonth}`, credit: 0, debit: payroll.totalPaid, referenceNo: payroll.referenceNo || payroll.payrollNumber, remarks: payroll.includeExpenses ? `Salary + reimbursement ${rupee(payroll.reimbursementAmount)}` : "Salary only" }))
   ];
 
   const rows = (statementType === "bank" ? bankRows.filter((row) => !bankAccount || row.bankAccount === bankAccount) : cashRows)
