@@ -7,7 +7,7 @@ import { logActivity } from "../services/activity.js";
 
 export const recordsRouter = Router();
 
-recordsRouter.use(requireAuth);
+recordsRouter.use(requireAuth, requireRole("super_admin"));
 
 const moduleSchema = z.enum(["cash", "bank", "refund", "salary", "document", "report", "setting"]);
 const payloadSchema = z.object({

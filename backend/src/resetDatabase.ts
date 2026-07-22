@@ -4,7 +4,8 @@ import { connectDatabase } from "./config/db.js";
 import { User } from "./models/User.js";
 
 const adminEmail = "admin@efms.local";
-const adminPassword = "Htech@2026#";
+const adminPassword = process.env.ADMIN_INITIAL_PASSWORD;
+if (!adminPassword || adminPassword.length < 12) throw new Error("ADMIN_INITIAL_PASSWORD of at least 12 characters is required");
 
 await connectDatabase();
 

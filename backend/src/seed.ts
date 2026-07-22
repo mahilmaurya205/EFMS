@@ -6,7 +6,9 @@ import { BankAccount } from "./models/BankAccount.js";
 
 await connectDatabase();
 
-const passwordHash = await bcrypt.hash("Htech@2026#", 12);
+const adminPassword = process.env.ADMIN_INITIAL_PASSWORD;
+if (!adminPassword || adminPassword.length < 12) throw new Error("ADMIN_INITIAL_PASSWORD of at least 12 characters is required");
+const passwordHash = await bcrypt.hash(adminPassword, 12);
 
 await User.updateOne(
   { email: "admin@efms.local" },

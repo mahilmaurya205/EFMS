@@ -27,7 +27,7 @@ import {
   Users,
   XCircle
 } from "lucide-react";
-import { api, apiBlob, clearToken, getToken, rupee, setRefreshToken, setToken, type User } from "./api";
+import { api, apiBlob, clearToken, getToken, refreshAccessToken, rupee, setToken, type User } from "./api";
 import type { BankAccount, Budget, Expense, Invoice, MasterOption, OperationalRecord, RoleOption, StatementEntry, Transfer, Voucher } from "./types";
 import type { Earning } from "./types";
 
@@ -161,6 +161,17 @@ const dashboardPermissionOptions = [
   { id: "users", label: "Users" }
 ];
 
+const actionPermissionGroups = [
+  { title: "Expenses", options: [{ id: "expenses.create", label: "Create expense" }, { id: "expenses.edit", label: "Edit expense" }, { id: "expenses.archive", label: "Archive expense" }, { id: "expenses.manage_categories", label: "Manage categories" }] },
+  { title: "Earnings", options: [{ id: "earnings.create", label: "Create earning" }, { id: "earnings.edit", label: "Edit earning" }, { id: "earnings.archive", label: "Archive earning" }, { id: "earnings.manage_sources", label: "Manage sources" }, { id: "earnings.manage_projects", label: "Manage projects" }] },
+  { title: "Cash/Bank Transfers", options: [{ id: "transfers.create", label: "Create transfer" }, { id: "transfers.edit", label: "Edit transfer" }, { id: "transfers.archive", label: "Archive transfer" }] },
+  { title: "Employees", options: [{ id: "employees.create", label: "Create employee" }, { id: "employees.edit", label: "Edit employee" }, { id: "employees.deactivate", label: "Activate/deactivate employee" }] }
+];
+
+function canAction(user: User, action: string) {
+  return user.role === "super_admin" || Boolean(user.permissions?.actions?.includes(action));
+}
+
 export function App() {
   const [user, setUser] = useState<User | null>(null);
   const [view, setView] = useState("dashboard");
@@ -177,14 +188,14 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!getToken()) {
-      setLoading(false);
-      return;
-    }
-    api<{ user: User }>("/auth/me")
-      .then((data) => setUser(data.user))
-      .catch(() => clearToken())
-      .finally(() => setLoading(false));
+    (async () => {
+      try {
+        if (!getToken() && !await refreshAccessToken()) return;
+        const data = await api<{ user: User }>("/auth/me");
+        setUser(data.user);
+      } catch { clearToken(); }
+      finally { setLoading(false); }
+    })();
   }, []);
 
   useEffect(() => {
@@ -255,7 +266,8 @@ export function App() {
             <span>{user.role.replaceAll("_", " ")}</span>
             <button
               className="iconButton"
-              onClick={() => {
+              onClick={async () => {
+                try { await api("/auth/logout", { method: "POST", body: "{}" }); } catch { /* local logout must still complete */ }
                 clearToken();
                 setUser(null);
               }}
@@ -502,12 +514,11 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
     event.preventDefault();
     setError("");
     try {
-      const data = await api<{ token: string; refreshToken: string; user: User }>("/auth/login", {
+      const data = await api<{ token: string; user: User }>("/auth/login", {
         method: "POST",
         body: JSON.stringify({ email, password, ...(otp ? { otp } : {}) })
       });
       setToken(data.token);
-      setRefreshToken(data.refreshToken);
       onLogin(data.user);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Login failed";
@@ -758,6 +769,9 @@ function EarningsView({ user }: { user: User }) {
   const [filters, setFilters] = useState({ from: "", to: "", paymentMode: "" });
   const [page, setPage] = useState(1);
   const isSuperAdmin = user.role === "super_admin";
+  const canCreate = canAction(user, "earnings.create");
+  const canEdit = canAction(user, "earnings.edit");
+  const canArchive = canAction(user, "earnings.archive");
 
   async function load() {
     const [earningData, sourceData, projectData, bankAccountData] = await Promise.all([
@@ -792,7 +806,7 @@ function EarningsView({ user }: { user: User }) {
           <span className="eyebrow">Income</span>
           <h2>Earning entries</h2>
         </div>
-        <button
+        {canCreate && <button
           className="primary compact"
           onClick={() => {
             setEditingEarning(null);
@@ -800,10 +814,10 @@ function EarningsView({ user }: { user: User }) {
           }}
         >
           <Plus size={16} /> New Earning
-        </button>
+        </button>}
       </div>
-      <MasterOptionManager title="Earning Sources" type="earning_source" options={sources} onChanged={load} canManage={isSuperAdmin || user.role === "admin"} />
-      <MasterOptionManager title="Projects" type="project" options={projects} onChanged={load} canManage={isSuperAdmin || user.role === "admin"} />
+      <MasterOptionManager title="Earning Sources" type="earning_source" options={sources} onChanged={load} canManage={canAction(user, "earnings.manage_sources")} />
+      <MasterOptionManager title="Projects" type="project" options={projects} onChanged={load} canManage={canAction(user, "earnings.manage_projects")} />
       <FilterBar>
         <label>From Date<input type="date" value={filters.from} onChange={(event) => { setFilters({ ...filters, from: event.target.value }); setPage(1); }} /></label>
         <label>To Date<input type="date" value={filters.to} onChange={(event) => { setFilters({ ...filters, to: event.target.value }); setPage(1); }} /></label>
@@ -840,8 +854,8 @@ function EarningsView({ user }: { user: User }) {
         rows={pagedEarnings}
         columns={["source", "project", "customer", "paymentMode", "paidAmount", "remarks", "status"]}
         renderActions={
-          isSuperAdmin
-            ? (earning) => <RowActions onEdit={() => { setEditingEarning(earning); setFormOpen(true); }} onDelete={() => deleteEarning(earning)} deleteTitle="Archive" />
+          canEdit || canArchive
+            ? (earning) => <RowActions onEdit={canEdit ? () => { setEditingEarning(earning); setFormOpen(true); } : undefined} onDelete={canArchive ? () => deleteEarning(earning) : undefined} deleteTitle="Archive" />
             : undefined
         }
       />
@@ -1048,7 +1062,9 @@ function TransfersView({ user }: { user: User }) {
   const [form, setForm] = useState({ type: "cash_to_bank", amount: 0, bankAccount: "", referenceNo: "", remarks: "", transferDate: new Date().toISOString().slice(0, 10) });
   const [filters, setFilters] = useState({ from: "", to: "" });
   const [page, setPage] = useState(1);
-  const canManage = ["super_admin", "admin", "accountant"].includes(user.role);
+  const canCreate = canAction(user, "transfers.create");
+  const canEdit = canAction(user, "transfers.edit");
+  const canArchive = canAction(user, "transfers.archive");
 
   async function load() {
     const [transferData, accountData] = await Promise.all([api<Transfer[]>("/transfers"), api<BankAccount[]>("/bank-accounts")]);
@@ -1104,7 +1120,7 @@ function TransfersView({ user }: { user: User }) {
           <h2>Cash/Bank Transfer</h2>
         </div>
       </div>
-      {canManage && (
+      {(canCreate || Boolean(editingTransfer && canEdit)) && (
         <form className="formGrid" onSubmit={submit}>
           <label>
             Transfer Type
@@ -1140,7 +1156,7 @@ function TransfersView({ user }: { user: User }) {
       <SimpleTable
         rows={pagedTransfers}
         columns={["type", "bankAccount", "amount", "referenceNo", "remarks", "transferDate"]}
-        renderActions={canManage ? (transfer) => <RowActions onEdit={() => startEdit(transfer)} onDelete={() => deleteTransfer(transfer)} deleteTitle="Archive" /> : undefined}
+        renderActions={canEdit || canArchive ? (transfer) => <RowActions onEdit={canEdit ? () => startEdit(transfer) : undefined} onDelete={canArchive ? () => deleteTransfer(transfer) : undefined} deleteTitle="Archive" /> : undefined}
       />
       <Pagination page={page} total={filteredTransfers.length} onPage={setPage} />
     </section>
@@ -1395,6 +1411,9 @@ function ExpensesView({ user }: { user: User }) {
   const [proofPreview, setProofPreview] = useState<{ name: string; data: string } | null>(null);
 
   const isSuperAdmin = user.role === "super_admin";
+  const canCreate = canAction(user, "expenses.create");
+  const canEdit = canAction(user, "expenses.edit");
+  const canArchive = canAction(user, "expenses.archive");
 
   async function load() {
     const [expenseData, categoryData, userData, bankAccountData] = await Promise.all([
@@ -1439,7 +1458,7 @@ function ExpensesView({ user }: { user: User }) {
           <span className="eyebrow">Workflow</span>
           <h2>Expense requests</h2>
         </div>
-        <button
+        {canCreate && <button
           className="primary compact"
           onClick={() => {
             setEditingExpense(null);
@@ -1447,10 +1466,10 @@ function ExpensesView({ user }: { user: User }) {
           }}
         >
           <Plus size={16} /> New Expense
-        </button>
+        </button>}
       </div>
       {error && <p className="error">{error}</p>}
-      <MasterOptionManager title="Expense Categories" type="expense_category" options={categories} onChanged={load} canManage={isSuperAdmin || user.role === "admin"} />
+      <MasterOptionManager title="Expense Categories" type="expense_category" options={categories} onChanged={load} canManage={canAction(user, "expenses.manage_categories")} />
       <FilterBar>
         <label>From Date<input type="date" value={filters.from} onChange={(event) => { setFilters({ ...filters, from: event.target.value }); setPage(1); }} /></label>
         <label>To Date<input type="date" value={filters.to} onChange={(event) => { setFilters({ ...filters, to: event.target.value }); setPage(1); }} /></label>
@@ -1539,13 +1558,13 @@ function ExpensesView({ user }: { user: User }) {
                 </td>
                 <td>{expense.remarks || ""}</td>
                 <td className="actions">
-                  {isSuperAdmin && (
+                  {(canEdit || canArchive) && (
                     <RowActions
-                      onEdit={() => {
+                      onEdit={canEdit ? () => {
                         setEditingExpense(expense);
                         setFormOpen(true);
-                      }}
-                      onDelete={() => deleteExpense(expense)}
+                      } : undefined}
+                      onDelete={canArchive ? () => deleteExpense(expense) : undefined}
                       deleteTitle="Archive"
                     />
                   )}
@@ -1691,7 +1710,7 @@ function ExpenseForm({
       )}
       <label>
         Proof Upload
-        <input type="file" accept="image/*,.pdf" onChange={(event) => handleProof(event.target.files?.[0])} />
+        <input type="file" accept=".png,.jpg,.jpeg,.webp,.avif,.gif,.pdf,image/png,image/jpeg,image/webp,image/avif,image/gif,application/pdf" onChange={(event) => handleProof(event.target.files?.[0])} />
         {form.proofFileName && form.proofData && <UploadedFileButton fileName={form.proofFileName} available onView={() => setProofPreview({ name: form.proofFileName, data: form.proofData })} />}
       </label>
       <label className="wide">Remarks<textarea value={form.remarks} onChange={(event) => setForm({ ...form, remarks: event.target.value })} rows={3} /></label>
@@ -2010,7 +2029,7 @@ function RolesStaffView({ user }: { user: User }) {
   const [staff, setStaff] = useState<User[]>([]);
   const [editingRole, setEditingRole] = useState<RoleOption | null>(null);
   const [editingStaff, setEditingStaff] = useState<User | null>(null);
-  const [roleForm, setRoleForm] = useState({ name: "", description: "", sidebarPermissions: [] as string[], dashboardPermissions: [] as string[] });
+  const [roleForm, setRoleForm] = useState({ name: "", description: "", sidebarPermissions: [] as string[], dashboardPermissions: [] as string[], actionPermissions: [] as string[] });
   const [staffForm, setStaffForm] = useState({ name: "", email: "", password: "", role: "", phone: "", designation: "", department: "General" });
 
   async function load() {
@@ -2029,7 +2048,7 @@ function RolesStaffView({ user }: { user: User }) {
 
   function resetRoleForm() {
     setEditingRole(null);
-    setRoleForm({ name: "", description: "", sidebarPermissions: [], dashboardPermissions: [] });
+    setRoleForm({ name: "", description: "", sidebarPermissions: [], dashboardPermissions: [], actionPermissions: [] });
   }
 
   function resetStaffForm() {
@@ -2100,6 +2119,7 @@ function RolesStaffView({ user }: { user: User }) {
           values={roleForm.dashboardPermissions}
           onChange={(values) => setRoleForm({ ...roleForm, dashboardPermissions: values })}
         />
+        {actionPermissionGroups.map((group) => <PermissionChecklist key={group.title} title={`${group.title} Actions`} options={group.options} values={roleForm.actionPermissions} onChange={(values) => setRoleForm({ ...roleForm, actionPermissions: values })} />)}
         <div className="formActions">
           <button className="primary compact">{editingRole ? "Update Role" : "Create Role"}</button>
           {editingRole && <button type="button" className="secondary compact" onClick={resetRoleForm}>Cancel</button>}
@@ -2110,7 +2130,7 @@ function RolesStaffView({ user }: { user: User }) {
         columns={["name", "description", "isActive", "createdAt"]}
         renderActions={(role) => (
           <>
-            <button className="iconButton" onClick={() => { setEditingRole(role); setRoleForm({ name: role.name, description: role.description || "", sidebarPermissions: role.sidebarPermissions || [], dashboardPermissions: role.dashboardPermissions || [] }); }} title="Edit"><Pencil size={16} /></button>
+            <button className="iconButton" onClick={() => { setEditingRole(role); setRoleForm({ name: role.name, description: role.description || "", sidebarPermissions: role.sidebarPermissions || [], dashboardPermissions: role.dashboardPermissions || [], actionPermissions: role.actionPermissions || [] }); }} title="Edit"><Pencil size={16} /></button>
             {role.isActive ? (
               <button className="iconButton bad" onClick={() => setRoleActive(role, false)} title="Deactivate"><XCircle size={16} /></button>
             ) : (
@@ -2411,7 +2431,9 @@ function EmployeesView({ user }: { user: User }) {
     department: "General",
     joiningDate: ""
   });
-  const canManage = ["super_admin", "admin", "hr"].includes(user.role);
+  const canCreate = canAction(user, "employees.create");
+  const canEdit = canAction(user, "employees.edit");
+  const canDeactivate = canAction(user, "employees.deactivate");
 
   async function load() {
     const users = await api<User[]>("/users");
@@ -2477,7 +2499,7 @@ function EmployeesView({ user }: { user: User }) {
           <h2>Employees</h2>
         </div>
       </div>
-      {canManage && (
+      {(canCreate || Boolean(editingEmployee && canEdit)) && (
         <form className="formGrid" onSubmit={submit}>
           <label>Name<input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></label>
           <label>Email<input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required /></label>
@@ -2519,7 +2541,7 @@ function EmployeesView({ user }: { user: User }) {
               <th>Aadhar</th>
               <th>Address</th>
               <th>Status</th>
-              {canManage && <th>Actions</th>}
+              {(canEdit || canDeactivate) && <th>Actions</th>}
             </tr>
           </thead>
           <tbody>
@@ -2534,15 +2556,14 @@ function EmployeesView({ user }: { user: User }) {
                 <td>{employee.aadharNo || ""}</td>
                 <td>{employee.address || ""}</td>
                 <td><Status value={employee.isActive === false ? "inactive" : "active"} /></td>
-                {canManage && (
+                {(canEdit || canDeactivate) && (
                   <td className="actions">
-                    <button className="iconButton" onClick={() => startEdit(employee)} title="Edit"><Pencil size={16} /></button>
-                    {employee.isActive === false ? (
+                    {canEdit && <button className="iconButton" onClick={() => startEdit(employee)} title="Edit"><Pencil size={16} /></button>}
+                    {canDeactivate && (employee.isActive === false ? (
                       <button className="iconButton good" onClick={() => setActive(employee, true)} title="Activate"><CheckCircle2 size={16} /></button>
                     ) : (
                       <button className="iconButton bad" onClick={() => setActive(employee, false)} title="Deactivate"><XCircle size={16} /></button>
-                    )}
-                    <button className="iconButton bad" onClick={() => setActive(employee, false)} title="Delete"><Trash2 size={16} /></button>
+                    ))}
                   </td>
                 )}
               </tr>
@@ -2790,15 +2811,15 @@ function formatCell(row: Record<string, unknown>, column: string, moneyColumn?: 
   return String(value ?? "");
 }
 
-function RowActions({ onEdit, onDelete, deleteTitle = "Delete" }: { onEdit: () => void; onDelete: () => void; deleteTitle?: string }) {
+function RowActions({ onEdit, onDelete, deleteTitle = "Delete" }: { onEdit?: () => void; onDelete?: () => void; deleteTitle?: string }) {
   return (
     <>
-      <button className="iconButton" onClick={onEdit} title="Edit">
+      {onEdit && <button className="iconButton" onClick={onEdit} title="Edit">
         <Pencil size={16} />
-      </button>
-      <button className="iconButton bad" onClick={onDelete} title={deleteTitle}>
+      </button>}
+      {onDelete && <button className="iconButton bad" onClick={onDelete} title={deleteTitle}>
         <Trash2 size={16} />
-      </button>
+      </button>}
     </>
   );
 }

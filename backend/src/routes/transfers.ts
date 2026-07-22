@@ -1,13 +1,13 @@
 import { Router } from "express";
 import { z } from "zod";
-import { requireAuth, requireRole } from "../middleware/auth.js";
+import { requireAction, requireAuth, requirePermission } from "../middleware/auth.js";
 import { Transfer } from "../models/Transfer.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { logActivity } from "../services/activity.js";
 
 export const transfersRouter = Router();
 
-transfersRouter.use(requireAuth);
+transfersRouter.use(requireAuth, requirePermission("transfers"));
 
 const transferPayload = z.object({
   type: z.enum(["cash_to_bank", "bank_to_cash"]),
@@ -28,7 +28,7 @@ transfersRouter.get(
 
 transfersRouter.post(
   "/",
-  requireRole("super_admin", "admin", "accountant"),
+  requireAction("transfers.create"),
   asyncHandler(async (req, res) => {
     const data = transferPayload.parse(req.body);
     const transfer = await Transfer.create({ ...data, transferDate: new Date(data.transferDate) });
@@ -39,7 +39,7 @@ transfersRouter.post(
 
 transfersRouter.patch(
   "/:id",
-  requireRole("super_admin", "admin", "accountant"),
+  requireAction("transfers.edit"),
   asyncHandler(async (req, res) => {
     const data = transferPayload.partial().parse(req.body);
     const oldTransfer = await Transfer.findById(req.params.id).lean();
@@ -52,7 +52,7 @@ transfersRouter.patch(
 
 transfersRouter.delete(
   "/:id",
-  requireRole("super_admin", "admin", "accountant"),
+  requireAction("transfers.archive"),
   asyncHandler(async (req, res) => {
     const oldTransfer = await Transfer.findById(req.params.id).lean();
     const transfer = await Transfer.findByIdAndUpdate(req.params.id, { status: "archived" }, { new: true });

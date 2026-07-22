@@ -1,13 +1,13 @@
 import { Router } from "express";
 import { z } from "zod";
 import { Invoice } from "../models/Invoice.js";
-import { requireAuth, requireRole } from "../middleware/auth.js";
+import { requireAuth, requirePermission, requireRole } from "../middleware/auth.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { nextDocumentNumber } from "../utils/numbers.js";
 import { generateInvoicePdf } from "../services/pdf.js";
 
 export const invoicesRouter = Router();
-invoicesRouter.use(requireAuth);
+invoicesRouter.use(requireAuth, requirePermission("vouchers"));
 
 const invoicePayload = z.object({
   customer: z.string().min(2).optional(),

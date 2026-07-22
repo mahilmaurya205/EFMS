@@ -1,29 +1,29 @@
 import type { NextFunction, Request, Response } from "express";
+import { rateLimit } from "express-rate-limit";
+import { randomUUID } from "node:crypto";
+import { env } from "../config/env.js";
 
-const attempts = new Map<string, { count: number; resetAt: number }>();
-
-export function securityHeaders(_req: Request, res: Response, next: NextFunction) {
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "DENY");
-  res.setHeader("Referrer-Policy", "no-referrer");
-  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-  res.setHeader("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
+export function requestContext(req: Request, res: Response, next: NextFunction) {
+  const requestId = typeof req.headers["x-request-id"] === "string" && /^[a-zA-Z0-9-]{8,80}$/.test(req.headers["x-request-id"])
+    ? req.headers["x-request-id"]
+    : randomUUID();
+  res.locals.requestId = requestId;
+  res.setHeader("X-Request-Id", requestId);
+  res.setHeader("Cache-Control", "no-store");
   next();
 }
 
-export function loginRateLimit(req: Request, res: Response, next: NextFunction) {
-  const key = `${req.ip}:${String(req.body?.email ?? "").toLowerCase()}`;
-  const now = Date.now();
-  const state = attempts.get(key);
-  if (state && state.resetAt > now && state.count >= 5) {
-    res.setHeader("Retry-After", String(Math.ceil((state.resetAt - now) / 1000)));
-    return res.status(429).json({ message: "Too many login attempts. Try again in 15 minutes." });
-  }
-  if (!state || state.resetAt <= now) attempts.set(key, { count: 1, resetAt: now + 15 * 60_000 });
-  else state.count += 1;
-  next();
-}
+const response = { message: "Too many requests. Please try again later." };
 
-export function clearLoginAttempts(req: Request) {
-  attempts.delete(`${req.ip}:${String(req.body?.email ?? "").toLowerCase()}`);
+export const apiRateLimit = rateLimit({ windowMs: 15 * 60_000, limit: 500, standardHeaders: "draft-8", legacyHeaders: false, message: response });
+export const authRateLimit = rateLimit({ windowMs: 15 * 60_000, limit: 30, standardHeaders: "draft-8", legacyHeaders: false, message: response });
+export const loginRateLimit = rateLimit({ windowMs: 15 * 60_000, limit: 8, standardHeaders: "draft-8", legacyHeaders: false, skipSuccessfulRequests: true, message: { message: "Too many failed login attempts. Try again in 15 minutes." } });
+export const sensitiveRateLimit = rateLimit({ windowMs: 15 * 60_000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false, message: response });
+
+export function clearLoginAttempts(_req: Request) {}
+
+export function requireTrustedOrigin(req: Request, res: Response, next: NextFunction) {
+  const origin = req.get("origin")?.replace(/\/$/, "");
+  if (origin && env.clientOrigins.includes(origin)) return next();
+  return res.status(403).json({ message: "Untrusted request origin" });
 }

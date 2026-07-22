@@ -52,3 +52,11 @@ Restore requires the explicit phrase `RESTORE EFMS` and never overwrites audit-l
 - Password reset tokens expire after 30 minutes. In development only, the API returns the reset
   token; connect an email provider before production.
 - TOTP 2FA can be enabled from **Backup & Restore** using any authenticator app.
+
+Production startup rejects weak/reused secrets and non-HTTPS frontend origins. Set
+`NODE_ENV=production` and an exact, comma-separated `CLIENT_ORIGIN` allowlist. Access tokens are
+kept in session storage; rotating refresh tokens use Secure, HttpOnly cookies. Backend permission
+checks protect each module independently of sidebar visibility.
+
+Before launch, follow [SECURITY.md](SECURITY.md), enable MongoDB Atlas IP/user restrictions,
+configure hosting security headers, and run `npm audit --omit=dev` plus `npm run build`.

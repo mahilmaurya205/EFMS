@@ -297,7 +297,7 @@ export function createDevMemoryApp() {
 
   app.post("/api/auth/login", (req, res) => {
     const { email, password } = req.body as { email?: string; password?: string };
-    if (email !== "admin@efms.local" || password !== "Htech@2026#") {
+    if (!process.env.ADMIN_INITIAL_PASSWORD || email !== "admin@efms.local" || password !== process.env.ADMIN_INITIAL_PASSWORD) {
       const user = users.find((item) => item.email.toLowerCase() === String(email || "").toLowerCase());
       if (!user || user.role === "employee" || user.isActive === false || user.role === "super_admin" || user.password !== password) return res.status(401).json({ message: "Invalid credentials" });
       const role = roles.find((item) => item.name === user.role && item.isActive && !item.isArchived);

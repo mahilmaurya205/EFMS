@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { requireAuth, requireRole } from "../middleware/auth.js";
+import { requireAnyPermission, requireAuth, requirePermission, requireRole } from "../middleware/auth.js";
 import { BankAccount } from "../models/BankAccount.js";
 import { Earning } from "../models/Earning.js";
 import { OperationalRecord } from "../models/OperationalRecord.js";
@@ -34,6 +34,7 @@ function bankRecordEffect(record: { status: string; amount: number }) {
 
 bankAccountsRouter.get(
   "/",
+  requireAnyPermission("bankAccounts", "earnings", "expenses", "transfers", "vouchers", "statements", "reconciliation"),
   asyncHandler(async (_req, res) => {
     const [accounts, earnings, bankRecords, expenses, transfers, vouchers] = await Promise.all([
       BankAccount.find({ isArchived: false }).sort({ createdAt: -1 }).lean(),

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
-import { requireAuth, requireRole } from "../middleware/auth.js";
+import { requireAction, requireAnyPermission, requireAuth } from "../middleware/auth.js";
 import { User } from "../models/User.js";
 import { Expense } from "../models/Expense.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
@@ -10,7 +10,7 @@ import { decryptSensitive, encryptSensitive } from "../utils/encryption.js";
 
 export const usersRouter = Router();
 
-usersRouter.use(requireAuth);
+usersRouter.use(requireAuth, requireAnyPermission("employees", "expenses", "vouchers", "roles"));
 
 const strongPasswordSchema = z.string()
   .min(8, "Password must be at least 8 characters")
@@ -55,7 +55,7 @@ const createUserSchema = z.object({
 
 usersRouter.post(
   "/",
-  requireRole("super_admin"),
+  requireAction("employees.create"),
   asyncHandler(async (req, res) => {
     const data = createUserSchema.parse(req.body);
     const passwordHash = await bcrypt.hash(data.password, 12);
@@ -67,7 +67,7 @@ usersRouter.post(
 
 usersRouter.patch(
   "/:id",
-  requireRole("super_admin"),
+  requireAction("employees.edit"),
   asyncHandler(async (req, res) => {
     const data = z
       .object({
@@ -108,7 +108,7 @@ usersRouter.patch(
 
 usersRouter.delete(
   "/:id",
-  requireRole("super_admin"),
+  requireAction("employees.deactivate"),
   asyncHandler(async (req, res) => {
     const oldUser = await User.findById(req.params.id).select("-passwordHash").lean();
     const user = await User.findByIdAndUpdate(req.params.id, { isActive: false }, { new: true }).select("-passwordHash");

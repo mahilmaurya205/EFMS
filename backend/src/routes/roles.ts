@@ -15,6 +15,7 @@ const rolePayload = z.object({
   description: z.string().optional(),
   sidebarPermissions: z.array(z.string()).optional(),
   dashboardPermissions: z.array(z.string()).optional(),
+  actionPermissions: z.array(z.string()).optional(),
   isActive: z.boolean().optional()
 });
 

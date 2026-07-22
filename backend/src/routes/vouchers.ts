@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { Voucher } from "../models/Voucher.js";
-import { requireAuth, requireRole } from "../middleware/auth.js";
+import { requireAuth, requirePermission, requireRole } from "../middleware/auth.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { z } from "zod";
 import { nextDocumentNumber } from "../utils/numbers.js";
@@ -9,7 +9,7 @@ import type { AuthRequest } from "../middleware/auth.js";
 import { generateVoucherPdf } from "../services/pdf.js";
 
 export const vouchersRouter = Router();
-vouchersRouter.use(requireAuth);
+vouchersRouter.use(requireAuth, requirePermission("vouchers"));
 
 vouchersRouter.get(
   "/",

@@ -6,6 +6,7 @@ const roleSchema = new Schema(
     description: { type: String, default: "" },
     sidebarPermissions: [{ type: String }],
     dashboardPermissions: [{ type: String }],
+    actionPermissions: [{ type: String }],
     isActive: { type: Boolean, default: true },
     isArchived: { type: Boolean, default: false }
   },

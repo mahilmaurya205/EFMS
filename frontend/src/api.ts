@@ -27,24 +27,30 @@ export type User = {
   permissions?: {
     sidebar: string[];
     dashboard: string[];
+    actions: string[];
   };
 };
 
 export function getToken() {
-  return localStorage.getItem("efms_token");
+  return sessionStorage.getItem("efms_token");
 }
 
 export function setToken(token: string) {
-  localStorage.setItem("efms_token", token);
-}
-
-export function setRefreshToken(token: string) {
-  localStorage.setItem("efms_refresh_token", token);
+  sessionStorage.setItem("efms_token", token);
 }
 
 export function clearToken() {
+  sessionStorage.removeItem("efms_token");
   localStorage.removeItem("efms_token");
-  localStorage.removeItem("efms_refresh_token");
+  localStorage.removeItem("efms_refresh_token"); // Remove legacy pre-cookie sessions during migration.
+}
+
+export async function refreshAccessToken() {
+  const response = await fetch(`${API_BASE}/auth/refresh`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: "{}" });
+  if (!response.ok) { clearToken(); return false; }
+  const tokens = await response.json() as { token: string };
+  setToken(tokens.token);
+  return true;
 }
 
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -55,18 +61,14 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
     const token = getToken();
     if (token) headers.set("Authorization", `Bearer ${token}`);
 
-    let response = await fetch(`${API_BASE}${path}`, { ...options, headers });
+    let response = await fetch(`${API_BASE}${path}`, { ...options, headers, credentials: "include" });
     if (response.status === 401 && path !== "/auth/login" && path !== "/auth/refresh") {
-      const refreshToken = localStorage.getItem("efms_refresh_token");
-      if (refreshToken) {
-        const refreshed = await fetch(`${API_BASE}/auth/refresh`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refreshToken }) });
-        if (refreshed.ok) {
-          const tokens = await refreshed.json() as { token: string; refreshToken: string };
-          setToken(tokens.token);
-          setRefreshToken(tokens.refreshToken);
-          headers.set("Authorization", `Bearer ${tokens.token}`);
-          response = await fetch(`${API_BASE}${path}`, { ...options, headers });
-        } else clearToken();
+      if (await refreshAccessToken()) {
+        const renewedToken = getToken();
+        if (renewedToken) {
+          headers.set("Authorization", `Bearer ${renewedToken}`);
+          response = await fetch(`${API_BASE}${path}`, { ...options, headers, credentials: "include" });
+        }
       }
     }
     const payload = await response.json().catch(() => ({}));
@@ -91,7 +93,7 @@ export async function apiBlob(path: string) {
     const headers = new Headers();
     const token = getToken();
     if (token) headers.set("Authorization", `Bearer ${token}`);
-    const response = await fetch(`${API_BASE}${path}`, { headers });
+    const response = await fetch(`${API_BASE}${path}`, { headers, credentials: "include" });
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
       const message = payload.message ?? "Download failed";

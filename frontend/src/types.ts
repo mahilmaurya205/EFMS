@@ -99,6 +99,7 @@ export type RoleOption = {
   description?: string;
   sidebarPermissions?: string[];
   dashboardPermissions?: string[];
+  actionPermissions?: string[];
   isActive: boolean;
   isArchived?: boolean;
   createdAt: string;

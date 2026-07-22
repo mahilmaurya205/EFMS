@@ -11,7 +11,7 @@ import { logActivity } from "../services/activity.js";
 import { createHash, randomBytes, randomInt } from "node:crypto";
 import { RefreshSession } from "../models/RefreshSession.js";
 import { PasswordReset } from "../models/PasswordReset.js";
-import { clearLoginAttempts, loginRateLimit } from "../middleware/security.js";
+import { clearLoginAttempts, loginRateLimit, requireTrustedOrigin, sensitiveRateLimit } from "../middleware/security.js";
 import { createTotpSecret, verifyTotp } from "../utils/totp.js";
 import { PasswordChangeOtp } from "../models/PasswordChangeOtp.js";
 import { sendPasswordChangeOtp } from "../services/email.js";
@@ -33,10 +33,27 @@ const strongPasswordSchema = z.string()
   .regex(/[^A-Za-z0-9]/, "Password must include a special character");
 
 const hashToken = (token: string) => createHash("sha256").update(token).digest("hex");
-const accessToken = (userId: unknown) => jwt.sign({ sub: userId, type: "access" }, env.jwtSecret, { expiresIn: "15m" });
+const tokenIssuer = "efms-api";
+const tokenAudience = "efms-web";
+const accessToken = (userId: unknown) => jwt.sign({ sub: userId, type: "access" }, env.jwtSecret, { expiresIn: "15m", issuer: tokenIssuer, audience: tokenAudience });
+const refreshCookieName = "efms_refresh";
+
+function setRefreshCookie(res: import("express").Response, token: string) {
+  res.cookie(refreshCookieName, token, {
+    httpOnly: true,
+    secure: env.nodeEnv === "production",
+    sameSite: env.nodeEnv === "production" ? "none" : "lax",
+    path: "/api/auth",
+    maxAge: 7 * 24 * 60 * 60_000
+  });
+}
+
+function clearRefreshCookie(res: import("express").Response) {
+  res.clearCookie(refreshCookieName, { httpOnly: true, secure: env.nodeEnv === "production", sameSite: env.nodeEnv === "production" ? "none" : "lax", path: "/api/auth" });
+}
 
 async function createRefreshToken(userId: unknown, req: import("express").Request) {
-  const token = jwt.sign({ sub: userId, type: "refresh", nonce: randomBytes(12).toString("hex") }, env.refreshSecret, { expiresIn: "7d" });
+  const token = jwt.sign({ sub: userId, type: "refresh", nonce: randomBytes(12).toString("hex") }, env.refreshSecret, { expiresIn: "7d", issuer: tokenIssuer, audience: tokenAudience });
   await RefreshSession.create({
     userId,
     tokenHash: hashToken(token),
@@ -56,13 +73,14 @@ authRouter.post(
     if (!user) return res.status(401).json({ message: "Invalid credentials" });
     if (!user.isActive) return res.status(401).json({ message: "User is inactive" });
     if (user.role === "employee") return res.status(403).json({ message: "Employee login is disabled" });
-    let permissions = { sidebar: [] as string[], dashboard: [] as string[] };
+    let permissions = { sidebar: [] as string[], dashboard: [] as string[], actions: [] as string[] };
     if (user.role !== "super_admin") {
       const role = await Role.findOne({ name: user.role, isActive: true, isArchived: false }).lean();
       if (!role) return res.status(403).json({ message: "Role is inactive or unavailable" });
       permissions = {
         sidebar: role.sidebarPermissions ?? [],
-        dashboard: role.dashboardPermissions ?? []
+        dashboard: role.dashboardPermissions ?? [],
+        actions: role.actionPermissions ?? []
       };
     }
 
@@ -75,34 +93,38 @@ authRouter.post(
     clearLoginAttempts(req);
     const token = accessToken(user._id);
     const refreshToken = await createRefreshToken(user._id, req);
+    setRefreshCookie(res, refreshToken);
     await logActivity(req, { action: "auth.login", entityType: "user", entityId: user._id, userId: user._id, newValue: { email: user.email, role: user.role } });
 
     return res.json({
       token,
-      refreshToken,
       user: { id: user._id, name: user.name, email: user.email, role: user.role, permissions }
     });
   })
 );
 
-authRouter.post("/refresh", asyncHandler(async (req, res) => {
-  const refreshToken = z.object({ refreshToken: z.string().min(20) }).parse(req.body).refreshToken;
-  const payload = jwt.verify(refreshToken, env.refreshSecret) as { sub: string; type?: string };
+authRouter.post("/refresh", requireTrustedOrigin, asyncHandler(async (req, res) => {
+  const refreshToken = String(req.cookies?.[refreshCookieName] ?? "");
+  if (!refreshToken) return res.status(401).json({ message: "Refresh session expired" });
+  const payload = jwt.verify(refreshToken, env.refreshSecret, { issuer: tokenIssuer, audience: tokenAudience }) as { sub: string; type?: string };
   if (payload.type !== "refresh") return res.status(401).json({ message: "Invalid refresh token" });
   const session = await RefreshSession.findOne({ tokenHash: hashToken(refreshToken), revokedAt: { $exists: false }, expiresAt: { $gt: new Date() } });
   if (!session) return res.status(401).json({ message: "Refresh session expired" });
   session.revokedAt = new Date();
   await session.save();
-  res.json({ token: accessToken(payload.sub), refreshToken: await createRefreshToken(payload.sub, req) });
+  const rotatedToken = await createRefreshToken(payload.sub, req);
+  setRefreshCookie(res, rotatedToken);
+  res.json({ token: accessToken(payload.sub) });
 }));
 
-authRouter.post("/logout", asyncHandler(async (req, res) => {
-  const refreshToken = z.object({ refreshToken: z.string().optional() }).parse(req.body).refreshToken;
+authRouter.post("/logout", requireTrustedOrigin, asyncHandler(async (req, res) => {
+  const refreshToken = String(req.cookies?.[refreshCookieName] ?? "");
   if (refreshToken) await RefreshSession.updateOne({ tokenHash: hashToken(refreshToken) }, { revokedAt: new Date() });
+  clearRefreshCookie(res);
   res.status(204).send();
 }));
 
-authRouter.post("/forgot-password", asyncHandler(async (req, res) => {
+authRouter.post("/forgot-password", sensitiveRateLimit, asyncHandler(async (req, res) => {
   const email = z.object({ email: z.string().email() }).parse(req.body).email.toLowerCase();
   const user = await User.findOne({ email });
   let resetToken: string | undefined;
@@ -115,7 +137,7 @@ authRouter.post("/forgot-password", asyncHandler(async (req, res) => {
   res.json({ message: "If the account exists, reset instructions have been generated.", ...(env.exposeResetToken && resetToken ? { resetToken } : {}) });
 }));
 
-authRouter.post("/reset-password", asyncHandler(async (req, res) => {
+authRouter.post("/reset-password", sensitiveRateLimit, asyncHandler(async (req, res) => {
   const data = z.object({ token: z.string().min(32), password: strongPasswordSchema }).parse(req.body);
   const reset = await PasswordReset.findOne({ tokenHash: hashToken(data.token), usedAt: { $exists: false }, expiresAt: { $gt: new Date() } });
   if (!reset) return res.status(400).json({ message: "Reset link is invalid or expired" });
@@ -127,7 +149,7 @@ authRouter.post("/reset-password", asyncHandler(async (req, res) => {
   res.json({ message: "Password reset successful" });
 }));
 
-authRouter.post("/change-password/request-otp", requireAuth, requireRole("super_admin"), asyncHandler(async (req: AuthRequest, res) => {
+authRouter.post("/change-password/request-otp", sensitiveRateLimit, requireAuth, requireRole("super_admin"), asyncHandler(async (req: AuthRequest, res) => {
   const data = z.object({
     currentPassword: z.string().min(1),
     newPassword: strongPasswordSchema
@@ -172,7 +194,7 @@ authRouter.post("/change-password/request-otp", requireAuth, requireRole("super_
   res.json({ message: "Verification code sent", recipient: maskedRecipient, expiresInSeconds: 600 });
 }));
 
-authRouter.post("/change-password/verify-otp", requireAuth, requireRole("super_admin"), asyncHandler(async (req: AuthRequest, res) => {
+authRouter.post("/change-password/verify-otp", sensitiveRateLimit, requireAuth, requireRole("super_admin"), asyncHandler(async (req: AuthRequest, res) => {
   const otp = z.object({ otp: z.string().regex(/^\d{6}$/, "Enter a valid 6-digit OTP") }).parse(req.body).otp;
   const pending = await PasswordChangeOtp.findOne({ userId: req.user!.id, expiresAt: { $gt: new Date() } });
   if (!pending) return res.status(400).json({ message: "OTP is expired or no password change is pending" });
@@ -193,6 +215,7 @@ authRouter.post("/change-password/verify-otp", requireAuth, requireRole("super_a
   await pending.deleteOne();
   await RefreshSession.updateMany({ userId: user._id, revokedAt: { $exists: false } }, { revokedAt: new Date() });
   await PasswordReset.deleteMany({ userId: user._id });
+  clearRefreshCookie(res);
   await logActivity(req, { action: "auth.password_changed", entityType: "user", entityId: user._id });
   res.json({ message: "Password changed successfully. Please sign in again." });
 }));
@@ -205,7 +228,7 @@ authRouter.get(
   })
 );
 
-authRouter.post("/2fa/setup", requireAuth, asyncHandler(async (req: AuthRequest, res) => {
+authRouter.post("/2fa/setup", sensitiveRateLimit, requireAuth, asyncHandler(async (req: AuthRequest, res) => {
   const secret = createTotpSecret();
   await User.findByIdAndUpdate(req.user!.id, { twoFactorPendingSecret: secret });
   const issuer = encodeURIComponent("EFMS");
@@ -213,7 +236,7 @@ authRouter.post("/2fa/setup", requireAuth, asyncHandler(async (req: AuthRequest,
   res.json({ secret, otpauthUrl: `otpauth://totp/${label}?secret=${secret}&issuer=${issuer}&digits=6&period=30` });
 }));
 
-authRouter.post("/2fa/enable", requireAuth, asyncHandler(async (req: AuthRequest, res) => {
+authRouter.post("/2fa/enable", sensitiveRateLimit, requireAuth, asyncHandler(async (req: AuthRequest, res) => {
   const otp = z.object({ otp: z.string().length(6) }).parse(req.body).otp;
   const user = await User.findById(req.user!.id).select("+twoFactorPendingSecret");
   if (!user?.twoFactorPendingSecret || !verifyTotp(user.twoFactorPendingSecret, otp)) return res.status(400).json({ message: "Invalid authentication code" });
@@ -225,7 +248,7 @@ authRouter.post("/2fa/enable", requireAuth, asyncHandler(async (req: AuthRequest
   res.json({ enabled: true });
 }));
 
-authRouter.post("/2fa/disable", requireAuth, asyncHandler(async (req: AuthRequest, res) => {
+authRouter.post("/2fa/disable", sensitiveRateLimit, requireAuth, asyncHandler(async (req: AuthRequest, res) => {
   const otp = z.object({ otp: z.string().length(6) }).parse(req.body).otp;
   const user = await User.findById(req.user!.id).select("+twoFactorSecret");
   if (!user?.twoFactorSecret || !verifyTotp(user.twoFactorSecret, otp)) return res.status(400).json({ message: "Invalid authentication code" });

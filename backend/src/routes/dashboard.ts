@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requirePermission } from "../middleware/auth.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { Expense } from "../models/Expense.js";
 import { Voucher } from "../models/Voucher.js";
@@ -11,7 +11,7 @@ import { OperationalRecord } from "../models/OperationalRecord.js";
 import { Transfer } from "../models/Transfer.js";
 
 export const dashboardRouter = Router();
-dashboardRouter.use(requireAuth);
+dashboardRouter.use(requireAuth, requirePermission("dashboard"));
 
 dashboardRouter.get(
   "/",

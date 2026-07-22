@@ -1,13 +1,13 @@
 import { Router } from "express";
 import { z } from "zod";
-import { requireAuth, requireRole } from "../middleware/auth.js";
+import { requireAction, requireAuth, requirePermission } from "../middleware/auth.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { Earning } from "../models/Earning.js";
 import { logActivity } from "../services/activity.js";
 
 export const earningsRouter = Router();
 
-earningsRouter.use(requireAuth);
+earningsRouter.use(requireAuth, requirePermission("earnings"));
 
 const earningPayload = z.object({
   source: z.string().min(2).optional(),
@@ -33,6 +33,7 @@ earningsRouter.get(
 
 earningsRouter.post(
   "/",
+  requireAction("earnings.create"),
   asyncHandler(async (req, res) => {
     const data = z
       .object({
@@ -79,7 +80,7 @@ earningsRouter.post(
 
 earningsRouter.patch(
   "/:id",
-  requireRole("super_admin"),
+  requireAction("earnings.edit"),
   asyncHandler(async (req, res) => {
     const data = earningPayload.parse(req.body);
     const earning = await Earning.findById(req.params.id);
@@ -104,7 +105,7 @@ earningsRouter.patch(
 
 earningsRouter.delete(
   "/:id",
-  requireRole("super_admin"),
+  requireAction("earnings.archive"),
   asyncHandler(async (req, res) => {
     const earning = await Earning.findByIdAndUpdate(req.params.id, { status: "archived" }, { new: true });
     if (!earning) return res.status(404).json({ message: "Earning not found" });

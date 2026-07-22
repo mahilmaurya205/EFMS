@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { requireAuth, requireRole, type AuthRequest } from "../middleware/auth.js";
+import { requireAction, requireAuth, requirePermission, requireRole, type AuthRequest } from "../middleware/auth.js";
 import { Expense } from "../models/Expense.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { logActivity } from "../services/activity.js";
@@ -8,7 +8,7 @@ import { postExpenseToLedger } from "../services/accounting.js";
 
 export const expensesRouter = Router();
 
-expensesRouter.use(requireAuth);
+expensesRouter.use(requireAuth, requirePermission("expenses"));
 
 const expenseSchema = z.object({
   category: z.string().min(2),
@@ -22,8 +22,8 @@ const expenseSchema = z.object({
   spentByEmployeeName: z.string().optional(),
   paymentMode: z.enum(["cash", "cheque", "upi", "bank", "card", "other"]).default("cash"),
   bankAccount: z.string().optional(),
-  proofFileName: z.string().optional(),
-  proofData: z.string().optional(),
+  proofFileName: z.string().trim().max(180).regex(/^[^\u0000-\u001f<>:"/\\|?*]+$/).optional(),
+  proofData: z.string().max(2_800_000).regex(/^data:(image\/(png|jpeg|webp|avif|gif)|application\/pdf);base64,[A-Za-z0-9+/=\r\n]+$/).optional(),
   paidByEmployee: z.boolean().default(false)
 });
 
@@ -38,6 +38,7 @@ expensesRouter.get(
 
 expensesRouter.post(
   "/",
+  requireAction("expenses.create"),
   asyncHandler(async (req: AuthRequest, res) => {
     const data = expenseSchema.parse(req.body);
     const expenseData = {
@@ -62,7 +63,7 @@ expensesRouter.post(
 
 expensesRouter.patch(
   "/:id",
-  requireRole("super_admin"),
+  requireAction("expenses.edit"),
   asyncHandler(async (req, res) => {
     const data = expenseSchema.partial().parse(req.body);
     const oldExpense = await Expense.findById(req.params.id).lean();
@@ -85,7 +86,7 @@ expensesRouter.patch(
 
 expensesRouter.delete(
   "/:id",
-  requireRole("super_admin"),
+  requireAction("expenses.archive"),
   asyncHandler(async (req, res) => {
     const expense = await Expense.findByIdAndUpdate(req.params.id, { status: "archived" }, { new: true });
     if (!expense) return res.status(404).json({ message: "Expense not found" });

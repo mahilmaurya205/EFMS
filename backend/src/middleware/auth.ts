@@ -13,6 +13,7 @@ export interface AuthRequest extends Request {
     permissions?: {
       sidebar: string[];
       dashboard: string[];
+      actions: string[];
     };
   };
 }
@@ -24,17 +25,19 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
   if (!token) return res.status(401).json({ message: "Authentication required" });
 
   try {
-    const payload = jwt.verify(token, env.jwtSecret) as { sub: string };
+    const payload = jwt.verify(token, env.jwtSecret, { issuer: "efms-api", audience: "efms-web" }) as { sub: string; type?: string };
+    if (payload.type !== "access") return res.status(401).json({ message: "Invalid token" });
     const user = await User.findById(payload.sub).lean();
     if (!user || !user.isActive) return res.status(401).json({ message: "Invalid session" });
     if (user.role === "employee") return res.status(403).json({ message: "Employee login is disabled" });
-    let permissions = { sidebar: [] as string[], dashboard: [] as string[] };
+    let permissions = { sidebar: [] as string[], dashboard: [] as string[], actions: [] as string[] };
     if (user.role !== "super_admin") {
       const role = await Role.findOne({ name: user.role, isActive: true, isArchived: false }).lean();
       if (!role) return res.status(403).json({ message: "Role is inactive or unavailable" });
       permissions = {
         sidebar: role.sidebarPermissions ?? [],
-        dashboard: role.dashboardPermissions ?? []
+        dashboard: role.dashboardPermissions ?? [],
+        actions: role.actionPermissions ?? []
       };
     }
     req.user = {
@@ -63,5 +66,21 @@ export function requirePermission(permission: string) {
     if (!req.user) return res.status(401).json({ message: "Authentication required" });
     if (req.user.role === "super_admin" || req.user.permissions?.sidebar.includes(permission)) return next();
     return res.status(403).json({ message: `Permission denied: ${permission}` });
+  };
+}
+
+export function requireAnyPermission(...permissions: string[]) {
+  return (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user) return res.status(401).json({ message: "Authentication required" });
+    if (req.user.role === "super_admin" || permissions.some((permission) => req.user?.permissions?.sidebar.includes(permission))) return next();
+    return res.status(403).json({ message: "Permission denied" });
+  };
+}
+
+export function requireAction(action: string) {
+  return (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user) return res.status(401).json({ message: "Authentication required" });
+    if (req.user.role === "super_admin" || req.user.permissions?.actions.includes(action)) return next();
+    return res.status(403).json({ message: `Permission denied: ${action}` });
   };
 }

@@ -20,6 +20,19 @@ const server = app.listen(env.port, () => {
   console.log(`EFMS backend running on http://localhost:${env.port}`);
 });
 
+function shutdown(signal: string) {
+  console.log(`${signal} received; closing HTTP server.`);
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(1), 10_000).unref();
+}
+
+process.once("SIGTERM", () => shutdown("SIGTERM"));
+process.once("SIGINT", () => shutdown("SIGINT"));
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled promise rejection", reason);
+  shutdown("unhandledRejection");
+});
+
 server.on("error", (error: NodeJS.ErrnoException) => {
   if (error.code === "EADDRINUSE") {
     console.error(`Port ${env.port} is already in use.`);

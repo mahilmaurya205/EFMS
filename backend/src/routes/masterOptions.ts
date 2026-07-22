@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { requireAuth, requireRole } from "../middleware/auth.js";
+import { requireAction, requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { MasterOption } from "../models/MasterOption.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { logActivity } from "../services/activity.js";
@@ -14,6 +14,13 @@ const payloadSchema = z.object({
   name: z.string().min(2)
 });
 
+function requireOptionAction(req: AuthRequest, res: import("express").Response, next: import("express").NextFunction) {
+  const type = typeSchema.safeParse(req.params.type);
+  if (!type.success) return res.status(400).json({ message: "Invalid option type" });
+  const action = type.data === "expense_category" ? "expenses.manage_categories" : type.data === "earning_source" ? "earnings.manage_sources" : "earnings.manage_projects";
+  return requireAction(action)(req, res, next);
+}
+
 masterOptionsRouter.get(
   "/:type",
   asyncHandler(async (req, res) => {
@@ -25,7 +32,7 @@ masterOptionsRouter.get(
 
 masterOptionsRouter.post(
   "/:type",
-  requireRole("super_admin", "admin"),
+  requireOptionAction,
   asyncHandler(async (req, res) => {
     const type = typeSchema.parse(req.params.type);
     const data = payloadSchema.parse(req.body);
@@ -37,7 +44,7 @@ masterOptionsRouter.post(
 
 masterOptionsRouter.patch(
   "/:type/:id",
-  requireRole("super_admin", "admin"),
+  requireOptionAction,
   asyncHandler(async (req, res) => {
     typeSchema.parse(req.params.type);
     const data = payloadSchema.parse(req.body);
@@ -50,7 +57,7 @@ masterOptionsRouter.patch(
 
 masterOptionsRouter.delete(
   "/:type/:id",
-  requireRole("super_admin", "admin"),
+  requireOptionAction,
   asyncHandler(async (req, res) => {
     typeSchema.parse(req.params.type);
     const option = await MasterOption.findByIdAndUpdate(req.params.id, { isArchived: true }, { new: true });
