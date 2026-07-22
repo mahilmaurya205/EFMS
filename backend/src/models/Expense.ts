@@ -41,6 +41,8 @@ const expenseSchema = new Schema(
     rejectionReason: { type: String },
     voucherId: { type: Schema.Types.ObjectId, ref: "Voucher" },
     journalEntryId: { type: Schema.Types.ObjectId, ref: "JournalEntry" }
+    ,payrollId: { type: Schema.Types.ObjectId, ref: "Payroll" }
+    ,reimbursedAt: { type: Date }
   },
   { timestamps: true }
 );

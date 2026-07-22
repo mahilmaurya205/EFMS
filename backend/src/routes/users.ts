@@ -10,7 +10,7 @@ import { decryptSensitive, encryptSensitive } from "../utils/encryption.js";
 
 export const usersRouter = Router();
 
-usersRouter.use(requireAuth, requireAnyPermission("employees", "expenses", "vouchers", "roles"));
+usersRouter.use(requireAuth, requireAnyPermission("employees", "expenses", "vouchers", "roles", "payroll"));
 
 const strongPasswordSchema = z.string()
   .min(8, "Password must be at least 8 characters")
@@ -26,7 +26,7 @@ usersRouter.get(
     const [users, employeeExpenses] = await Promise.all([
       User.find().select("-passwordHash").sort({ createdAt: -1 }).lean(),
       Expense.aggregate([
-        { $match: { status: { $ne: "archived" }, paidFrom: "employee", spentByEmployeeId: { $exists: true } } },
+        { $match: { status: { $nin: ["archived", "rejected"] }, paidFrom: "employee", spentByEmployeeId: { $exists: true }, payrollId: { $exists: false } } },
         { $group: { _id: "$spentByEmployeeId", total: { $sum: "$amount" } } }
       ])
     ]);

@@ -11,7 +11,7 @@ dataSafetyRouter.use(requireAuth, requireRole("super_admin"));
 const allowedCollections = [
   "users", "roles", "expenses", "earnings", "vouchers", "invoices", "bankaccounts",
   "transfers", "operationalrecords", "masteroptions", "approvalrules", "journalentries",
-  "cashentries", "numbersequences", "budgets", "bankstatemententries", "activitylogs"
+  "cashentries", "numbersequences", "budgets", "bankstatemententries", "activitylogs", "payrolls"
 ] as const;
 
 dataSafetyRouter.get("/backup", asyncHandler(async (req: AuthRequest, res) => {

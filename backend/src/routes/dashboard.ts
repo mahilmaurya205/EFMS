@@ -9,6 +9,7 @@ import { BankAccount } from "../models/BankAccount.js";
 import { Earning } from "../models/Earning.js";
 import { OperationalRecord } from "../models/OperationalRecord.js";
 import { Transfer } from "../models/Transfer.js";
+import { Payroll } from "../models/Payroll.js";
 
 export const dashboardRouter = Router();
 dashboardRouter.use(requireAuth, requirePermission("dashboard"));
@@ -19,7 +20,7 @@ dashboardRouter.get(
     const start = new Date();
     start.setHours(0, 0, 0, 0);
 
-    const [todayExpenseTotal, todayEarningTotal, totalExpense, totalEarning, cashEarningTotal, bankEarningTotal, officeCashExpenseTotal, officeBankExpenseTotal, cashVoucherTotal, bankVoucherTotal, cashToBankTotal, bankToCashTotal, users, vouchers, cashEntries, bankAccounts, bankRecords] = await Promise.all([
+    const [todayExpenseTotal, todayEarningTotal, totalExpense, totalEarning, cashEarningTotal, bankEarningTotal, officeCashExpenseTotal, officeBankExpenseTotal, cashVoucherTotal, bankVoucherTotal, cashToBankTotal, bankToCashTotal, users, vouchers, cashEntries, bankAccounts, bankRecords, salaryTotal, todaySalaryTotal] = await Promise.all([
       Expense.aggregate([{ $match: { createdAt: { $gte: start }, status: { $ne: "archived" } } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
       Earning.aggregate([{ $match: { createdAt: { $gte: start }, status: { $ne: "archived" } } }, { $group: { _id: null, total: { $sum: "$paidAmount" } } }]),
       Expense.aggregate([{ $match: { status: { $ne: "archived" } } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
@@ -28,15 +29,17 @@ dashboardRouter.get(
       Earning.aggregate([{ $match: { status: { $ne: "archived" }, paymentMode: { $ne: "cash" } } }, { $group: { _id: null, total: { $sum: "$paidAmount" } } }]),
       Expense.aggregate([{ $match: { status: { $ne: "archived" }, paidFrom: "office", paymentMode: "cash" } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
       Expense.aggregate([{ $match: { status: { $ne: "archived" }, paidFrom: "office", paymentMode: { $ne: "cash" } } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
-      Voucher.aggregate([{ $match: { status: "issued", type: { $ne: "receipt" }, paymentMode: "cash" } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
-      Voucher.aggregate([{ $match: { status: "issued", type: { $ne: "receipt" }, paymentMode: { $ne: "cash" } } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
+      Voucher.aggregate([{ $match: { status: "issued", type: { $ne: "receipt" }, sourceType: { $ne: "payroll" }, paymentMode: "cash" } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
+      Voucher.aggregate([{ $match: { status: "issued", type: { $ne: "receipt" }, sourceType: { $ne: "payroll" }, paymentMode: { $ne: "cash" } } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
       Transfer.aggregate([{ $match: { status: { $ne: "archived" }, type: "cash_to_bank" } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
       Transfer.aggregate([{ $match: { status: { $ne: "archived" }, type: "bank_to_cash" } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
       User.countDocuments(),
       Voucher.countDocuments(),
       CashEntry.find().lean(),
       BankAccount.find({ isArchived: false, isActive: { $ne: false } }).lean(),
-      OperationalRecord.find({ module: "bank", status: { $ne: "archived" } }).lean()
+      OperationalRecord.find({ module: "bank", status: { $ne: "archived" } }).lean(),
+      Payroll.aggregate([{ $match: { status: "paid" } }, { $group: { _id: null, total: { $sum: "$basicSalary" } } }]),
+      Payroll.aggregate([{ $match: { status: "paid", paymentDate: { $gte: start } } }, { $group: { _id: null, total: { $sum: "$basicSalary" } } }])
     ]);
 
     const cashBookBalance = cashEntries.reduce((sum, entry) => {
@@ -55,9 +58,9 @@ dashboardRouter.get(
 
     res.json({
       totalIncome: totalEarning[0]?.total ?? 0,
-      totalExpense: totalExpense[0]?.total ?? 0,
+      totalExpense: (totalExpense[0]?.total ?? 0) + (salaryTotal[0]?.total ?? 0),
       todayIncome: todayEarningTotal[0]?.total ?? 0,
-      todayExpense: todayExpenseTotal[0]?.total ?? 0,
+      todayExpense: (todayExpenseTotal[0]?.total ?? 0) + (todaySalaryTotal[0]?.total ?? 0),
       users,
       vouchers,
       cashInHand,

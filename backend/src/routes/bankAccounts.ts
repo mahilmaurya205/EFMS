@@ -34,7 +34,7 @@ function bankRecordEffect(record: { status: string; amount: number }) {
 
 bankAccountsRouter.get(
   "/",
-  requireAnyPermission("bankAccounts", "earnings", "expenses", "transfers", "vouchers", "statements", "reconciliation"),
+  requireAnyPermission("bankAccounts", "earnings", "expenses", "transfers", "vouchers", "statements", "reconciliation", "payroll"),
   asyncHandler(async (_req, res) => {
     const [accounts, earnings, bankRecords, expenses, transfers, vouchers] = await Promise.all([
       BankAccount.find({ isArchived: false }).sort({ createdAt: -1 }).lean(),

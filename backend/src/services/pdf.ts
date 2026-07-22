@@ -160,3 +160,32 @@ export async function generateVoucherPdf(voucher: Record<string, any>) {
   finish(doc);
   return promise;
 }
+
+export async function generateSalarySlipPdf(payroll: Record<string, any>) {
+  const employee = payroll.employeeId ?? {};
+  const title = "SALARY SLIP";
+  const doc = createDocument(`${title} ${payroll.payrollNumber}`);
+  const promise = toBuffer(doc);
+  header(doc, title, `Payroll No: ${payroll.payrollNumber}  |  Salary Month: ${payroll.salaryMonth}`);
+  const y = doc.y;
+  detailLine(doc, "Employee", employee.name || "-", 42, y);
+  detailLine(doc, "Employee ID", String(employee._id || "-"), 300, y);
+  detailLine(doc, "Department", employee.department || "-", 42, y + 46);
+  detailLine(doc, "Designation", employee.designation || "-", 300, y + 46);
+  detailLine(doc, "Payment Date", new Date(payroll.paymentDate).toLocaleDateString("en-IN"), 42, y + 92);
+  detailLine(doc, "Payment Mode", `${String(payroll.paymentMode).toUpperCase()}${payroll.bankAccount ? ` - ${payroll.bankAccount}` : ""}`, 300, y + 92);
+  const boxY = y + 145;
+  doc.save().roundedRect(42, boxY, 511, 132, 8).fill("#f8fafc").strokeColor(line).stroke().restore();
+  [["Basic Salary", payroll.basicSalary], ["Expense Reimbursement", payroll.reimbursementAmount], ["Net Paid", payroll.totalPaid]].forEach(([label, value], index) => {
+    const rowY = boxY + 20 + index * 34;
+    doc.fillColor(index === 2 ? blue : dark).font(index === 2 ? "Helvetica-Bold" : "Helvetica").fontSize(index === 2 ? 12 : 10).text(String(label), 62, rowY, { width: 260 });
+    doc.text(money(Number(value)), 365, rowY, { width: 165, align: "right" });
+  });
+  doc.fillColor(muted).font("Helvetica").fontSize(8).text(`Reimbursed expense entries: ${(payroll.expenseIds ?? []).length}`, 42, boxY + 300, { width: 300 });
+  if (payroll.referenceNo) doc.text(`Reference: ${payroll.referenceNo}`, 42, boxY + 318, { width: 300 });
+  if (payroll.remarks) doc.text(`Remarks: ${payroll.remarks}`, 42, boxY + 336, { width: 430 });
+  doc.moveTo(390, boxY + 390).lineTo(545, boxY + 390).strokeColor(dark).stroke();
+  doc.fillColor(dark).font("Helvetica-Bold").fontSize(9).text("Authorized Signatory", 390, boxY + 397, { width: 155, align: "center" });
+  finish(doc);
+  return promise;
+}

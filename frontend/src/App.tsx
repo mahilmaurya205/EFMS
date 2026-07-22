@@ -28,7 +28,7 @@ import {
   XCircle
 } from "lucide-react";
 import { api, apiBlob, clearToken, getToken, refreshAccessToken, rupee, setToken, type User } from "./api";
-import type { BankAccount, Budget, Expense, Invoice, MasterOption, OperationalRecord, RoleOption, StatementEntry, Transfer, Voucher } from "./types";
+import type { BankAccount, Budget, Expense, Invoice, MasterOption, OperationalRecord, Payroll, RoleOption, StatementEntry, Transfer, Voucher } from "./types";
 import type { Earning } from "./types";
 
 type Dashboard = {
@@ -145,6 +145,7 @@ const nav = [
   { id: "dataSafety", label: "Backup & Restore", icon: DatabaseBackup },
   { id: "vouchers", label: "Vouchers", icon: FileText },
   { id: "employees", label: "Employees", icon: Users },
+  { id: "payroll", label: "Payroll", icon: Banknote },
   { id: "roles", label: "Roles & Staff", icon: ShieldCheck },
   { id: "audit", label: "Activity", icon: Activity }
 ];
@@ -166,6 +167,7 @@ const actionPermissionGroups = [
   { title: "Earnings", options: [{ id: "earnings.create", label: "Create earning" }, { id: "earnings.edit", label: "Edit earning" }, { id: "earnings.archive", label: "Archive earning" }, { id: "earnings.manage_sources", label: "Manage sources" }, { id: "earnings.manage_projects", label: "Manage projects" }] },
   { title: "Cash/Bank Transfers", options: [{ id: "transfers.create", label: "Create transfer" }, { id: "transfers.edit", label: "Edit transfer" }, { id: "transfers.archive", label: "Archive transfer" }] },
   { title: "Employees", options: [{ id: "employees.create", label: "Create employee" }, { id: "employees.edit", label: "Edit employee" }, { id: "employees.deactivate", label: "Activate/deactivate employee" }] }
+  ,{ title: "Payroll", options: [{ id: "payroll.create", label: "Release salary / reimbursement" }] }
 ];
 
 function canAction(user: User, action: string) {
@@ -288,6 +290,7 @@ export function App() {
         {view === "reconciliation" && <ReconciliationView user={user} />}
         {view === "dataSafety" && <DataSafetyView user={user} onPasswordChanged={() => { clearToken(); setUser(null); }} />}
         {view === "employees" && <EmployeesView user={user} />}
+        {view === "payroll" && <PayrollView user={user} />}
         {view === "roles" && <RolesStaffView user={user} />}
         {view === "vouchers" && <VouchersView user={user} />}
         {view === "invoices" && <InvoicesView user={user} />}
@@ -2415,6 +2418,52 @@ function MasterOptionManager({
   );
 }
 
+function PayrollView({ user }: { user: User }) {
+  const [payrolls, setPayrolls] = useState<Payroll[]>([]);
+  const [employees, setEmployees] = useState<User[]>([]);
+  const [banks, setBanks] = useState<BankAccount[]>([]);
+  const [eligible, setEligible] = useState<Array<{ _id: string; purpose: string; category: string; amount: number }>>([]);
+  const [form, setForm] = useState({ employeeId: "", salaryMonth: new Date().toISOString().slice(0, 7), includeExpenses: true, paymentMode: "bank", bankAccountId: "", referenceNo: "", paymentDate: new Date().toISOString().slice(0, 10), remarks: "" });
+  const selectedEmployee = employees.find((item) => (item.id || item._id) === form.employeeId);
+  const reimbursement = eligible.reduce((sum, item) => sum + Number(item.amount), 0);
+  const total = Number(selectedEmployee?.basicSalary || 0) + (form.includeExpenses ? reimbursement : 0);
+
+  async function load() {
+    const [payrollData, users, accounts] = await Promise.all([api<Payroll[]>("/payroll"), api<User[]>("/users"), api<BankAccount[]>("/bank-accounts")]);
+    setPayrolls(payrollData); setEmployees(users.filter((item) => item.role === "employee" && item.isActive !== false)); setBanks(accounts.filter((item) => item.isActive !== false));
+  }
+  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    if (!form.employeeId) { setEligible([]); return; }
+    api<Array<{ _id: string; purpose: string; category: string; amount: number }>>(`/payroll/eligible-expenses/${form.employeeId}`).then(setEligible).catch(() => setEligible([]));
+  }, [form.employeeId]);
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    if (!await confirmPopup(`Release ${rupee(total)} for ${selectedEmployee?.name}?`, "Confirm payroll", "Release Payment")) return;
+    await api("/payroll", { method: "POST", body: JSON.stringify(form) });
+    setForm({ ...form, employeeId: "", bankAccountId: "", referenceNo: "", remarks: "" }); setEligible([]); await load();
+  }
+
+  return <section>
+    <div className="sectionHead"><div><span className="eyebrow">Salary Settlement</span><h2>Payroll & Reimbursements</h2></div></div>
+    {canAction(user, "payroll.create") && <form className="formGrid" onSubmit={submit}>
+      <label>Employee<select required value={form.employeeId} onChange={(e) => setForm({ ...form, employeeId: e.target.value })}><option value="" disabled>Select employee</option>{employees.map((employee) => <option key={employee.id || employee._id} value={employee.id || employee._id}>{employee.name}</option>)}</select></label>
+      <label>Salary Month<input type="month" required value={form.salaryMonth} onChange={(e) => setForm({ ...form, salaryMonth: e.target.value })} /></label>
+      <label>Payment Mode<select value={form.paymentMode} onChange={(e) => setForm({ ...form, paymentMode: e.target.value, bankAccountId: e.target.value === "cash" ? "" : form.bankAccountId })}><option value="bank">Bank</option><option value="cash">Cash</option></select></label>
+      {form.paymentMode === "bank" && <label>Bank Account<select required value={form.bankAccountId} onChange={(e) => setForm({ ...form, bankAccountId: e.target.value })}><option value="" disabled>Select bank</option>{banks.map((bank) => <option key={bank._id} value={bank._id}>{bank.bankName} - {bank.accountNumber} ({rupee(bank.currentBalance)})</option>)}</select></label>}
+      <label>Payment Date<input type="date" required value={form.paymentDate} onChange={(e) => setForm({ ...form, paymentDate: e.target.value })} /></label>
+      <label>Reference No.<input value={form.referenceNo} onChange={(e) => setForm({ ...form, referenceNo: e.target.value })} /></label>
+      <label className="checkboxRow"><input type="checkbox" checked={form.includeExpenses} onChange={(e) => setForm({ ...form, includeExpenses: e.target.checked })} /> Include pending employee expenses</label>
+      <label className="wide">Remarks<textarea rows={2} value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })} /></label>
+      <div className="summaryStrip wide"><strong>Salary: {rupee(Number(selectedEmployee?.basicSalary || 0))}</strong><strong>Reimbursement: {rupee(form.includeExpenses ? reimbursement : 0)} ({form.includeExpenses ? eligible.length : 0} entries)</strong><strong>Total payment: {rupee(total)}</strong></div>
+      {form.includeExpenses && eligible.length > 0 && <div className="wide muted">Included: {eligible.map((item) => `${item.purpose} (${rupee(item.amount)})`).join(", ")}</div>}
+      <div className="formActions"><button className="primary compact" disabled={!form.employeeId || total <= 0}>Release Salary</button></div>
+    </form>}
+    <SimpleTable rows={payrolls} columns={["payrollNumber", "employeeId.name", "salaryMonth", "basicSalary", "reimbursementAmount", "totalPaid", "paymentMode", "bankAccount", "paymentDate", "status"]} renderActions={(payroll) => <button className="iconButton" onClick={() => downloadServerPdf(`/payroll/${payroll._id}/pdf`, `${payroll.payrollNumber}.pdf`)} title="Download salary slip"><Download size={16} /></button>} />
+  </section>;
+}
+
 function EmployeesView({ user }: { user: User }) {
   const [employees, setEmployees] = useState<User[]>([]);
   const [editingEmployee, setEditingEmployee] = useState<User | null>(null);
@@ -2803,10 +2852,10 @@ function cleanPayload<T extends Record<string, unknown>>(payload: T) {
 }
 
 function formatCell(row: Record<string, unknown>, column: string, moneyColumn?: string) {
-  const value = column.startsWith("fields.") ? (row.fields as Record<string, unknown> | undefined)?.[column.slice(7)] : row[column];
+  const value = column.split(".").reduce<unknown>((current, key) => current && typeof current === "object" ? (current as Record<string, unknown>)[key] : undefined, row);
   if (column === moneyColumn || column.toLowerCase().includes("amount") || column === "subtotal" || column === "credit" || column === "debit") return rupee(Number(value || 0));
   if (column === "timestamp" && typeof value === "string") return new Date(value).toLocaleString("en-IN");
-  if (["date", "createdAt", "transferDate"].includes(column) && typeof value === "string") return value.slice(0, 10);
+  if (["date", "createdAt", "transferDate", "paymentDate"].includes(column) && typeof value === "string") return value.slice(0, 10);
   if (column === "isActive") return value === false ? "Deactive" : "Active";
   return String(value ?? "");
 }
