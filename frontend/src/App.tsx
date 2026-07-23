@@ -1549,6 +1549,7 @@ function ExpensesView({ user }: { user: User }) {
             <tr>
               <th>Purpose</th>
               <th>Category</th>
+              <th>Expected Date</th>
               <th>Amount</th>
               <th>Status</th>
               <th>Paid From</th>
@@ -1564,6 +1565,7 @@ function ExpensesView({ user }: { user: User }) {
               <tr key={expense._id}>
                 <td>{expense.purpose}</td>
                 <td>{expense.category}</td>
+                <td>{toDateInputValue(expense.expectedDate).split("-").reverse().join("-")}</td>
                 <td>{rupee(expense.amount)}</td>
                 <td><Status value={expense.status} /></td>
                 <td>{expense.paidFrom === "employee" ? expense.spentByEmployeeName || "Employee" : "Office"}</td>
