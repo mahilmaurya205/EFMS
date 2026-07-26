@@ -195,11 +195,11 @@ export async function generateSalarySlipPdf(payroll: Record<string, any>) {
   const title = "SALARY SLIP";
   const doc = createDocument(`${title} ${payroll.payrollNumber}`);
   const promise = toBuffer(doc);
-  header(doc, title, `Payroll No: ${payroll.payrollNumber}  |  Salary Month: ${payroll.salaryMonth}`, true);
+  header(doc, title, `Salary Month: ${payroll.salaryMonth}`, true);
   const y = 176;
   doc.save().roundedRect(42, y, 511, 112, 8).fill("#f8fafc").strokeColor(line).stroke().restore();
   detailLine(doc, "Employee Name", employee.name || "-", 58, y + 17, 210);
-  detailLine(doc, "Employee ID", String(employee._id || "-"), 315, y + 17, 210);
+  detailLine(doc, "Employee ID", employee.employeeCode || "-", 315, y + 17, 210);
   detailLine(doc, "Department", employee.department || "-", 58, y + 63, 210);
   detailLine(doc, "Designation", employee.designation || "-", 315, y + 63, 210);
   doc.fillColor(dark).font("Helvetica-Bold").fontSize(11).text("EARNINGS & REIMBURSEMENTS", 42, 315);

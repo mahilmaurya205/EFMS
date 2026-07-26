@@ -9,7 +9,7 @@ const payrollSchema = new Schema({
   totalPaid: { type: Number, required: true, min: 0 },
   includeExpenses: { type: Boolean, default: false },
   expenseIds: [{ type: Schema.Types.ObjectId, ref: "Expense" }],
-  paymentMode: { type: String, enum: ["cash", "bank"], required: true },
+  paymentMode: { type: String, enum: ["cash", "bank", "cheque"], required: true },
   bankAccountId: { type: Schema.Types.ObjectId, ref: "BankAccount" },
   bankAccount: { type: String, default: "" },
   referenceNo: { type: String, default: "" },

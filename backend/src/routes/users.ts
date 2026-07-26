@@ -42,6 +42,7 @@ usersRouter.get(
 
 const createUserSchema = z.object({
   name: z.string().min(2),
+  employeeCode: z.string().trim().min(1).max(50).optional(),
   email: z.string().email(),
   password: strongPasswordSchema,
   role: z.string(),
@@ -53,6 +54,8 @@ const createUserSchema = z.object({
   designation: z.string().optional(),
   joiningDate: z.string().optional(),
   isActive: z.boolean().optional()
+}).superRefine((value, ctx) => {
+  if (value.role === "employee" && !value.employeeCode) ctx.addIssue({ code: "custom", path: ["employeeCode"], message: "Employee ID is required" });
 });
 
 usersRouter.post(
@@ -74,6 +77,7 @@ usersRouter.patch(
     const data = z
       .object({
         name: z.string().min(2).optional(),
+        employeeCode: z.string().trim().min(1).max(50).optional(),
         email: z.string().email().optional(),
         role: z.string().optional(),
         accessRole: z.string().trim().optional(),

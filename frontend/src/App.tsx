@@ -1209,7 +1209,7 @@ function StatementsView() {
     ...expenses.filter((expense) => expense.status !== "archived" && expense.paidFrom === "office" && expense.paymentMode === "bank").map((expense) => ({ date: expense.createdAt, timestamp: expense.createdAt, type: "Expense", bankAccount: expense.bankAccount || "Unlinked Bank", particulars: expense.purpose, credit: 0, debit: expense.amount, referenceNo: "", remarks: expense.remarks || "" })),
     ...transfers.filter((transfer) => transfer.status !== "archived").map((transfer) => ({ date: transfer.transferDate, timestamp: transfer.createdAt, type: transfer.type === "cash_to_bank" ? "Cash Deposit" : "Cash Withdrawal", bankAccount: transfer.bankAccount, particulars: transfer.type === "cash_to_bank" ? "Cash to Bank" : "Bank to Cash", credit: transfer.type === "cash_to_bank" ? transfer.amount : 0, debit: transfer.type === "bank_to_cash" ? transfer.amount : 0, referenceNo: transfer.referenceNo || "", remarks: transfer.remarks || "" })),
     ...vouchers.filter((voucher) => voucher.status === "issued" && voucher.type !== "receipt" && voucher.paymentMode === "bank").map((voucher) => ({ date: voucher.createdAt, timestamp: voucher.createdAt, type: "Voucher Payment", bankAccount: voucher.bankAccount || "Unlinked Bank", particulars: voucher.purpose, credit: 0, debit: voucher.amount, referenceNo: voucher.referenceNo || voucher.voucherNumber, remarks: voucher.receiver || "" })),
-    ...payrolls.filter((payroll) => payroll.status === "paid" && payroll.paymentMode === "bank").map((payroll) => ({ date: payroll.paymentDate, timestamp: payroll.paymentDate, type: "Salary Payment", bankAccount: payroll.bankAccount || "Unlinked Bank", particulars: `${payroll.employeeId?.name || "Employee"} - Salary ${payroll.salaryMonth}`, credit: 0, debit: payroll.totalPaid, referenceNo: payroll.referenceNo || payroll.payrollNumber, remarks: payroll.includeExpenses ? `Salary + reimbursement ${rupee(payroll.reimbursementAmount)}` : "Salary only" }))
+    ...payrolls.filter((payroll) => payroll.status === "paid" && payroll.paymentMode !== "cash").map((payroll) => ({ date: payroll.paymentDate, timestamp: payroll.paymentDate, type: "Salary Payment", bankAccount: payroll.bankAccount || "Unlinked Bank", particulars: `${payroll.employeeId?.name || "Employee"} - Salary ${payroll.salaryMonth}`, credit: 0, debit: payroll.totalPaid, referenceNo: payroll.referenceNo || payroll.payrollNumber, remarks: payroll.includeExpenses ? `Salary + reimbursement ${rupee(payroll.reimbursementAmount)}` : "Salary only" }))
   ];
 
   const cashRows = [
@@ -2495,8 +2495,8 @@ function PayrollView({ user }: { user: User }) {
     {canAction(user, "payroll.create") && <form className="formGrid" onSubmit={submit}>
       <label>Employee<select required value={form.employeeId} onChange={(e) => setForm({ ...form, employeeId: e.target.value })}><option value="" disabled>Select employee</option>{employees.map((employee) => <option key={employee.id || employee._id} value={employee.id || employee._id}>{employee.name}</option>)}</select></label>
       <label>Salary Month<input type="month" required value={form.salaryMonth} onChange={(e) => setForm({ ...form, salaryMonth: e.target.value })} /></label>
-      <label>Payment Mode<select value={form.paymentMode} onChange={(e) => setForm({ ...form, paymentMode: e.target.value, bankAccountId: e.target.value === "cash" ? "" : form.bankAccountId })}><option value="bank">Bank</option><option value="cash">Cash</option></select></label>
-      {form.paymentMode === "bank" && <label>Bank Account<select required value={form.bankAccountId} onChange={(e) => setForm({ ...form, bankAccountId: e.target.value })}><option value="" disabled>Select bank</option>{banks.map((bank) => <option key={bank._id} value={bank._id}>{bank.bankName} - {bank.accountNumber} ({rupee(bank.currentBalance)})</option>)}</select></label>}
+      <label>Payment Mode<select value={form.paymentMode} onChange={(e) => setForm({ ...form, paymentMode: e.target.value, bankAccountId: e.target.value === "cash" ? "" : form.bankAccountId })}><option value="bank">Bank</option><option value="cheque">Cheque</option><option value="cash">Cash</option></select></label>
+      {form.paymentMode !== "cash" && <label>Bank Account<select required value={form.bankAccountId} onChange={(e) => setForm({ ...form, bankAccountId: e.target.value })}><option value="" disabled>Select bank</option>{banks.map((bank) => <option key={bank._id} value={bank._id}>{bank.bankName} - {bank.accountNumber} ({rupee(bank.currentBalance)})</option>)}</select></label>}
       <label>Payment Date<input type="date" required value={form.paymentDate} onChange={(e) => setForm({ ...form, paymentDate: e.target.value })} /></label>
       <label>Reference No.<input value={form.referenceNo} onChange={(e) => setForm({ ...form, referenceNo: e.target.value })} /></label>
       <label className="checkboxRow"><input type="checkbox" checked={form.includeExpenses} onChange={(e) => setForm({ ...form, includeExpenses: e.target.checked })} /> Include pending employee expenses</label>
@@ -2516,6 +2516,7 @@ function EmployeesView({ user }: { user: User }) {
   const [page, setPage] = useState(1);
   const [form, setForm] = useState({
     name: "",
+    employeeCode: "",
     email: "",
     phone: "",
     basicSalary: 0,
@@ -2540,13 +2541,14 @@ function EmployeesView({ user }: { user: User }) {
 
   function resetForm() {
     setEditingEmployee(null);
-    setForm({ name: "", email: "", phone: "", basicSalary: 0, aadharNo: "", address: "", designation: "", department: "General", joiningDate: "" });
+    setForm({ name: "", employeeCode: "", email: "", phone: "", basicSalary: 0, aadharNo: "", address: "", designation: "", department: "General", joiningDate: "" });
   }
 
   function startEdit(employee: User) {
     setEditingEmployee(employee);
     setForm({
       name: employee.name || "",
+      employeeCode: employee.employeeCode || "",
       email: employee.email || "",
       phone: employee.phone || "",
       basicSalary: Number(employee.basicSalary || 0),
@@ -2596,6 +2598,7 @@ function EmployeesView({ user }: { user: User }) {
       {(canCreate || Boolean(editingEmployee && canEdit)) && (
         <form className="formGrid" onSubmit={submit}>
           <label>Name<input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></label>
+          <label>Employee ID<input value={form.employeeCode} onChange={(event) => setForm({ ...form, employeeCode: event.target.value })} required /></label>
           <label>Email<input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required /></label>
           <label>Phone No.<input value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /></label>
           <label>Salary<input type="number" value={form.basicSalary} onChange={(event) => setForm({ ...form, basicSalary: Number(event.target.value) })} /></label>
@@ -2626,6 +2629,7 @@ function EmployeesView({ user }: { user: User }) {
         <table>
           <thead>
             <tr>
+              <th>Employee ID</th>
               <th>Name</th>
               <th>Email</th>
               <th>Phone</th>
@@ -2641,6 +2645,7 @@ function EmployeesView({ user }: { user: User }) {
           <tbody>
             {pagedEmployees.map((employee) => (
               <tr key={employee.id}>
+                <td>{employee.employeeCode || ""}</td>
                 <td>{employee.name}</td>
                 <td>{employee.email}</td>
                 <td>{employee.phone || ""}</td>
@@ -2672,15 +2677,17 @@ function EmployeesView({ user }: { user: User }) {
 
 function EmployeeManager({ employees, onChanged, canManage }: { employees: User[]; onChanged: () => Promise<void>; canManage: boolean }) {
   const [name, setName] = useState("");
+  const [employeeCode, setEmployeeCode] = useState("");
   const [email, setEmail] = useState("");
 
   async function createEmployee(event: React.FormEvent) {
     event.preventDefault();
-    if (!name.trim() || !email.trim()) return;
+    if (!name.trim() || !employeeCode.trim() || !email.trim()) return;
     await api("/users", {
       method: "POST",
       body: JSON.stringify({
         name: name.trim(),
+        employeeCode: employeeCode.trim(),
         email: email.trim(),
         password: "Employee@123",
         role: "employee",
@@ -2688,6 +2695,7 @@ function EmployeeManager({ employees, onChanged, canManage }: { employees: User[
       })
     });
     setName("");
+    setEmployeeCode("");
     setEmail("");
     await onChanged();
   }
@@ -2732,6 +2740,7 @@ function EmployeeManager({ employees, onChanged, canManage }: { employees: User[
       {canManage && (
         <form className="masterForm" onSubmit={createEmployee}>
           <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Employee name" />
+          <input value={employeeCode} onChange={(event) => setEmployeeCode(event.target.value)} placeholder="Employee ID" required />
           <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Employee email" />
           <button className="primary compact">
             <Plus size={16} /> Add

@@ -152,7 +152,7 @@ export type StatementEntry = {
 };
 
 export type Payroll = {
-  _id: string; payrollNumber: string; employeeId: { _id: string; name: string; email?: string; department?: string; designation?: string };
+  _id: string; payrollNumber: string; employeeId: { _id: string; name: string; employeeCode?: string; email?: string; department?: string; designation?: string };
   salaryMonth: string; basicSalary: number; reimbursementAmount: number; totalPaid: number; includeExpenses: boolean;
-  expenseIds: string[]; paymentMode: "cash" | "bank"; bankAccount?: string; referenceNo?: string; paymentDate: string; remarks?: string; status: string;
+  expenseIds: string[]; paymentMode: "cash" | "bank" | "cheque"; bankAccount?: string; referenceNo?: string; paymentDate: string; remarks?: string; status: string;
 };

@@ -5,6 +5,7 @@ export type UserRole = "super_admin" | "employee" | string;
 const userSchema = new Schema(
   {
     name: { type: String, required: true, trim: true },
+    employeeCode: { type: String, unique: true, sparse: true, uppercase: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     passwordHash: { type: String, required: true },
     role: { type: String, default: "employee", trim: true },

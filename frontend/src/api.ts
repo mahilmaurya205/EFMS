@@ -10,6 +10,7 @@ export type User = {
   _id?: string;
   id: string;
   name: string;
+  employeeCode?: string;
   email: string;
   role: string;
   accessRole?: string;

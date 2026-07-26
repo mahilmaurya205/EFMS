@@ -21,15 +21,15 @@ payrollRouter.use(requireAuth);
 
 const createSchema = z.object({
   employeeId: z.string().min(1), salaryMonth: z.string().regex(/^\d{4}-\d{2}$/),
-  includeExpenses: z.boolean().default(false), paymentMode: z.enum(["cash", "bank"]),
+  includeExpenses: z.boolean().default(false), paymentMode: z.enum(["cash", "bank", "cheque"]),
   bankAccountId: z.string().optional(), referenceNo: z.string().trim().max(100).optional(),
   paymentDate: z.string(), remarks: z.string().trim().max(500).optional()
 }).superRefine((value, ctx) => {
-  if (value.paymentMode === "bank" && !value.bankAccountId) ctx.addIssue({ code: "custom", path: ["bankAccountId"], message: "Bank account is required" });
+  if (value.paymentMode !== "cash" && !value.bankAccountId) ctx.addIssue({ code: "custom", path: ["bankAccountId"], message: "Bank account is required" });
 });
 
 payrollRouter.get("/", requireAnyPermission("payroll", "statements"), asyncHandler(async (_req, res) => {
-  res.json(await Payroll.find().populate("employeeId", "name email department designation").sort({ paymentDate: -1, createdAt: -1 }).lean());
+  res.json(await Payroll.find().populate("employeeId", "name employeeCode email department designation").sort({ paymentDate: -1, createdAt: -1 }).lean());
 }));
 
 payrollRouter.get("/eligible-expenses/:employeeId", requirePermission("payroll"), asyncHandler(async (req, res) => {
@@ -46,8 +46,8 @@ payrollRouter.post("/", requirePermission("payroll"), requireAction("payroll.cre
   const basicSalary = Number(employee.basicSalary || 0);
   const totalPaid = basicSalary + reimbursementAmount;
   if (totalPaid <= 0) return res.status(400).json({ message: "Salary and reimbursement total must be greater than zero" });
-  const bank = data.paymentMode === "bank" ? await BankAccount.findOne({ _id: data.bankAccountId, isArchived: false, isActive: { $ne: false } }) : null;
-  if (data.paymentMode === "bank" && (!bank || bank.currentBalance < totalPaid)) return res.status(400).json({ message: "Selected bank account has insufficient balance" });
+  const bank = data.paymentMode !== "cash" ? await BankAccount.findOne({ _id: data.bankAccountId, isArchived: false, isActive: { $ne: false } }) : null;
+  if (data.paymentMode !== "cash" && (!bank || bank.currentBalance < totalPaid)) return res.status(400).json({ message: "Selected bank account has insufficient balance" });
   if (data.paymentMode === "cash") {
     const [cashEntries, cashEarnings, cashExpenses, cashVouchers, cashToBank, bankToCash] = await Promise.all([
       CashEntry.find().lean(),
@@ -82,11 +82,11 @@ payrollRouter.post("/", requirePermission("payroll"), requireAction("payroll.cre
     });
   } finally { await session.endSession(); }
   await logActivity(req, { action: "payroll.create", entityType: "payroll", entityId: payroll._id, newValue: { payrollNumber: payroll.payrollNumber, employee: employee.name, totalPaid } });
-  res.status(201).json(await Payroll.findById(payroll._id).populate("employeeId", "name email department designation").lean());
+  res.status(201).json(await Payroll.findById(payroll._id).populate("employeeId", "name employeeCode email department designation").lean());
 }));
 
 payrollRouter.get("/:id/pdf", requirePermission("payroll"), asyncHandler(async (req, res) => {
-  const payroll = await Payroll.findById(req.params.id).populate("employeeId", "name email department designation").lean();
+  const payroll = await Payroll.findById(req.params.id).populate("employeeId", "name employeeCode email department designation").lean();
   if (!payroll) return res.status(404).json({ message: "Payroll not found" });
   const pdf = await generateSalarySlipPdf(payroll as any);
   res.setHeader("Content-Type", "application/pdf");
