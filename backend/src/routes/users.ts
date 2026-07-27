@@ -43,7 +43,7 @@ usersRouter.get(
 const createUserSchema = z.object({
   name: z.string().min(2),
   employeeCode: z.string().trim().min(1).max(50).optional(),
-  email: z.string().email(),
+  email: z.string().trim().toLowerCase().email(),
   password: strongPasswordSchema,
   role: z.string(),
   department: z.string().optional(),
@@ -78,7 +78,7 @@ usersRouter.patch(
       .object({
         name: z.string().min(2).optional(),
         employeeCode: z.string().trim().min(1).max(50).optional(),
-        email: z.string().email().optional(),
+        email: z.string().trim().toLowerCase().email().optional(),
         role: z.string().optional(),
         accessRole: z.string().trim().optional(),
         department: z.string().optional(),

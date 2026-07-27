@@ -4,6 +4,7 @@ import morgan from "morgan";
 import jwt from "jsonwebtoken";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { env } from "./config/env.js";
 
 type User = {
@@ -11,6 +12,7 @@ type User = {
   name: string;
   email: string;
   role: string;
+  accessRole?: string;
   password?: string;
   phone?: string;
   aadharNo?: string;
@@ -164,7 +166,8 @@ const roles: Role[] = [];
 const transfers: Transfer[] = [];
 const activityLogs: unknown[] = [];
 
-const memoryDbPath = path.resolve(process.cwd(), ".dev-memory-db.json");
+const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
+const memoryDbPath = path.resolve(moduleDirectory, "..", ".dev-memory-db.json");
 
 function replaceArray<T>(target: T[], source?: T[]) {
   target.splice(0, target.length, ...(source ?? []));
@@ -258,12 +261,14 @@ function requireDevAuth(req: express.Request, res: express.Response, next: expre
     const user = users.find((item) => item.id === payload.sub);
     if (!user) return res.status(401).json({ message: "Invalid session" });
     if (user.isActive === false) return res.status(401).json({ message: "Invalid session" });
-    if (user.role === "employee") return res.status(403).json({ message: "Employee login is disabled" });
-    const role = user.role === "super_admin" ? undefined : roles.find((item) => item.name === user.role && item.isActive && !item.isArchived);
-    if (user.role !== "super_admin" && !role) return res.status(403).json({ message: "Role is inactive or unavailable" });
-    (req as express.Request & { user: User & { permissions?: { sidebar: string[]; dashboard: string[] } } }).user = {
+    const effectiveRole = user.role === "employee" ? String(user.accessRole || "") : user.role;
+    if (!effectiveRole) return res.status(403).json({ message: "Employee login access is not enabled" });
+    const role = effectiveRole === "super_admin" ? undefined : roles.find((item) => item.name === effectiveRole && item.isActive && !item.isArchived);
+    if (effectiveRole !== "super_admin" && !role) return res.status(403).json({ message: "Role is inactive or unavailable" });
+    (req as express.Request & { user: User & { permissions?: { sidebar: string[]; dashboard: string[]; actions: string[] } } }).user = {
       ...user,
-      permissions: { sidebar: role?.sidebarPermissions ?? [], dashboard: role?.dashboardPermissions ?? [] }
+      role: effectiveRole,
+      permissions: { sidebar: role?.sidebarPermissions ?? [], dashboard: role?.dashboardPermissions ?? [], actions: role?.actionPermissions ?? [] }
     };
     next();
   } catch {
@@ -298,14 +303,17 @@ export function createDevMemoryApp() {
 
   app.post("/api/auth/login", (req, res) => {
     const { email, password } = req.body as { email?: string; password?: string };
-    if (!process.env.ADMIN_INITIAL_PASSWORD || email !== "admin@efms.local" || password !== process.env.ADMIN_INITIAL_PASSWORD) {
-      const user = users.find((item) => item.email.toLowerCase() === String(email || "").toLowerCase());
-      if (!user || user.role === "employee" || user.isActive === false || user.role === "super_admin" || user.password !== password) return res.status(401).json({ message: "Invalid credentials" });
-      const role = roles.find((item) => item.name === user.role && item.isActive && !item.isArchived);
+    const normalizedEmail = String(email || "").trim().toLowerCase();
+    if (!process.env.ADMIN_INITIAL_PASSWORD || normalizedEmail !== "admin@efms.local" || password !== process.env.ADMIN_INITIAL_PASSWORD) {
+      const user = users.find((item) => item.email.trim().toLowerCase() === normalizedEmail);
+      if (!user || user.isActive === false || user.role === "super_admin" || user.password !== password) return res.status(401).json({ message: "Invalid credentials" });
+      const effectiveRole = user.role === "employee" ? String(user.accessRole || "") : user.role;
+      if (!effectiveRole) return res.status(403).json({ message: "Employee login access is not enabled" });
+      const role = roles.find((item) => item.name === effectiveRole && item.isActive && !item.isArchived);
       if (!role) return res.status(403).json({ message: "Role is inactive or unavailable" });
       const token = jwt.sign({ sub: user.id }, env.jwtSecret, { expiresIn: "8h" });
       activityLogs.unshift({ action: "auth.login", userId: user.id, createdAt: new Date().toISOString() });
-      return res.json({ token, user: { ...user, permissions: { sidebar: role.sidebarPermissions ?? [], dashboard: role.dashboardPermissions ?? [] } } });
+      return res.json({ token, user: { ...user, role: effectiveRole, employeeProfile: user.role === "employee", permissions: { sidebar: role.sidebarPermissions ?? [], dashboard: role.dashboardPermissions ?? [], actions: role.actionPermissions ?? [] } } });
     }
     const token = jwt.sign({ sub: admin.id }, env.jwtSecret, { expiresIn: "8h" });
     activityLogs.unshift({ action: "auth.login", userId: admin.id, createdAt: new Date().toISOString() });
@@ -639,8 +647,9 @@ export function createDevMemoryApp() {
     const user: User = {
       id: id("user"),
       name: body.name,
-      email: body.email,
+      email: body.email.trim().toLowerCase(),
       role: body.role || "employee",
+      accessRole: body.accessRole || "",
       password: body.password || "",
       phone: body.phone || "",
       aadharNo: body.aadharNo || "",
@@ -661,8 +670,9 @@ export function createDevMemoryApp() {
     if (!user) return res.status(404).json({ message: "User not found" });
     const body = req.body as Partial<User>;
     if (body.name) user.name = body.name;
-    if (body.email) user.email = body.email;
+    if (body.email) user.email = body.email.trim().toLowerCase();
     if (body.role) user.role = body.role;
+    if (body.accessRole !== undefined) user.accessRole = body.accessRole;
     if (body.password !== undefined) user.password = body.password;
     if (body.phone !== undefined) user.phone = body.phone;
     if (body.aadharNo !== undefined) user.aadharNo = body.aadharNo;

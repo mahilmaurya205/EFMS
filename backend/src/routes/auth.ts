@@ -19,7 +19,7 @@ import { sendPasswordChangeOtp } from "../services/email.js";
 export const authRouter = Router();
 
 const loginSchema = z.object({
-  email: z.string().email(),
+  email: z.string().trim().toLowerCase().email(),
   password: z.string().min(6)
   ,otp: z.string().length(6).optional()
 });
@@ -69,7 +69,7 @@ authRouter.post(
   loginRateLimit,
   asyncHandler(async (req, res) => {
     const data = loginSchema.parse(req.body);
-    const user = await User.findOne({ email: data.email.toLowerCase() }).select("+twoFactorSecret");
+    const user = await User.findOne({ email: data.email }).select("+twoFactorSecret");
     if (!user) return res.status(401).json({ message: "Invalid credentials" });
     if (!user.isActive) return res.status(401).json({ message: "User is inactive" });
     const effectiveRole = user.role === "employee" ? String(user.accessRole || "") : user.role;
