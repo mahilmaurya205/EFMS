@@ -127,6 +127,7 @@ type Role = {
   description?: string;
   sidebarPermissions?: string[];
   dashboardPermissions?: string[];
+  actionPermissions?: string[];
   isActive: boolean;
   isArchived: boolean;
   createdAt: string;
@@ -603,7 +604,7 @@ export function createDevMemoryApp() {
     const name = normalizeRole(body.name);
     if (["super_admin", "employee"].includes(name)) return res.status(400).json({ message: "This role is fixed and cannot be created here" });
     if (roles.some((role) => role.name === name && !role.isArchived)) return res.status(400).json({ message: "Role already exists" });
-    const role: Role = { _id: id("role"), name, description: body.description || "", sidebarPermissions: body.sidebarPermissions || [], dashboardPermissions: body.dashboardPermissions || [], isActive: body.isActive ?? true, isArchived: false, createdAt: new Date().toISOString() };
+    const role: Role = { _id: id("role"), name, description: body.description || "", sidebarPermissions: body.sidebarPermissions || [], dashboardPermissions: body.dashboardPermissions || [], actionPermissions: body.actionPermissions || [], isActive: body.isActive ?? true, isArchived: false, createdAt: new Date().toISOString() };
     roles.unshift(role);
     activityLogs.unshift({ action: "role.create", entityType: "role", entityId: role._id, createdAt: role.createdAt });
     res.status(201).json(role);
@@ -617,6 +618,7 @@ export function createDevMemoryApp() {
     if (body.description !== undefined) role.description = body.description;
     if (body.sidebarPermissions !== undefined) role.sidebarPermissions = body.sidebarPermissions;
     if (body.dashboardPermissions !== undefined) role.dashboardPermissions = body.dashboardPermissions;
+    if (body.actionPermissions !== undefined) role.actionPermissions = body.actionPermissions;
     if (body.isActive !== undefined) role.isActive = body.isActive;
     activityLogs.unshift({ action: "role.update", entityType: "role", entityId: role._id, createdAt: new Date().toISOString() });
     res.json(role);

@@ -166,6 +166,7 @@ const actionPermissionGroups = [
   { title: "Expenses", options: [{ id: "expenses.create", label: "Create expense" }, { id: "expenses.edit", label: "Edit expense" }, { id: "expenses.archive", label: "Archive expense" }, { id: "expenses.manage_categories", label: "Manage categories" }] },
   { title: "Earnings", options: [{ id: "earnings.create", label: "Create earning" }, { id: "earnings.edit", label: "Edit earning" }, { id: "earnings.archive", label: "Archive earning" }, { id: "earnings.manage_sources", label: "Manage sources" }, { id: "earnings.manage_projects", label: "Manage projects" }] },
   { title: "Cash/Bank Transfers", options: [{ id: "transfers.create", label: "Create transfer" }, { id: "transfers.edit", label: "Edit transfer" }, { id: "transfers.archive", label: "Archive transfer" }] },
+  { title: "Vouchers", options: [{ id: "vouchers.create", label: "Create voucher" }, { id: "vouchers.edit", label: "Edit voucher" }, { id: "vouchers.cancel", label: "Cancel voucher" }, { id: "vouchers.download", label: "Download voucher" }] },
   { title: "Employees", options: [{ id: "employees.create", label: "Create employee" }, { id: "employees.edit", label: "Edit employee" }, { id: "employees.deactivate", label: "Activate/deactivate employee" }] }
   ,{ title: "Payroll", options: [{ id: "payroll.create", label: "Release salary / reimbursement" }] }
 ];
@@ -1754,7 +1755,11 @@ function VouchersView({ user }: { user: User }) {
   const [formOpen, setFormOpen] = useState(false);
   const [editingVoucher, setEditingVoucher] = useState<Voucher | null>(null);
   const [receiptVoucher, setReceiptVoucher] = useState<Voucher | null>(null);
-  const isSuperAdmin = user.role === "super_admin";
+  const canCreate = canAction(user, "vouchers.create");
+  const canEdit = canAction(user, "vouchers.edit");
+  const canCancel = canAction(user, "vouchers.cancel");
+  const canDownload = canAction(user, "vouchers.download");
+  const hasVoucherActions = canEdit || canCancel || canDownload;
   async function load() {
     const [voucherData, userData, bankData] = await Promise.all([api<Voucher[]>("/vouchers"), api<User[]>("/users"), api<BankAccount[]>("/bank-accounts")]);
     setVouchers(voucherData);
@@ -1778,7 +1783,7 @@ function VouchersView({ user }: { user: User }) {
           <span className="eyebrow">Records</span>
           <h2>Vouchers</h2>
         </div>
-        <button
+        {canCreate && <button
           className="primary compact"
           onClick={() => {
             setEditingVoucher(null);
@@ -1786,7 +1791,7 @@ function VouchersView({ user }: { user: User }) {
           }}
         >
           <Plus size={16} /> New Voucher
-        </button>
+        </button>}
       </div>
       {formOpen && (
         <VoucherForm
@@ -1811,18 +1816,18 @@ function VouchersView({ user }: { user: User }) {
         columns={["voucherNumber", "type", "receiver", "purpose", "amount", "paymentMode", "bankAccount", "referenceNo", "remarks", "status"]}
         moneyColumn="amount"
         renderActions={
-          isSuperAdmin
+          hasVoucherActions
             ? (voucher) => (
                 <>
-                  <button className="iconButton" onClick={() => downloadServerPdf(`/vouchers/${voucher._id}/pdf`, `${voucher.voucherNumber}.pdf`)} title="Download PDF"><Download size={16} /></button>
-                  <RowActions
-                    onEdit={() => {
+                  {canDownload && <button className="iconButton" onClick={() => downloadServerPdf(`/vouchers/${voucher._id}/pdf`, `${voucher.voucherNumber}.pdf`)} title="Download PDF"><Download size={16} /></button>}
+                  {(canEdit || canCancel) && <RowActions
+                    onEdit={canEdit ? () => {
                       setEditingVoucher(voucher);
                       setFormOpen(true);
-                    }}
-                    onDelete={() => deleteVoucher(voucher)}
+                    } : undefined}
+                    onDelete={canCancel ? () => deleteVoucher(voucher) : undefined}
                     deleteTitle="Cancel"
-                  />
+                  />}
                 </>
               )
             : undefined
