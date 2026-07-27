@@ -166,7 +166,7 @@ const actionPermissionGroups = [
   { title: "Expenses", options: [{ id: "expenses.create", label: "Create expense" }, { id: "expenses.edit", label: "Edit expense" }, { id: "expenses.archive", label: "Archive expense" }, { id: "expenses.manage_categories", label: "Manage categories" }] },
   { title: "Earnings", options: [{ id: "earnings.create", label: "Create earning" }, { id: "earnings.edit", label: "Edit earning" }, { id: "earnings.archive", label: "Archive earning" }, { id: "earnings.manage_sources", label: "Manage sources" }, { id: "earnings.manage_projects", label: "Manage projects" }] },
   { title: "Cash/Bank Transfers", options: [{ id: "transfers.create", label: "Create transfer" }, { id: "transfers.edit", label: "Edit transfer" }, { id: "transfers.archive", label: "Archive transfer" }] },
-  { title: "Vouchers", options: [{ id: "vouchers.create", label: "Create voucher" }, { id: "vouchers.edit", label: "Edit voucher" }, { id: "vouchers.cancel", label: "Cancel voucher" }, { id: "vouchers.download", label: "Download voucher" }] },
+  { title: "Vouchers", options: [{ id: "vouchers.view", label: "View voucher" }, { id: "vouchers.create", label: "Create voucher" }, { id: "vouchers.edit", label: "Edit voucher" }, { id: "vouchers.cancel", label: "Cancel voucher" }, { id: "vouchers.download", label: "Download voucher" }] },
   { title: "Employees", options: [{ id: "employees.create", label: "Create employee" }, { id: "employees.edit", label: "Edit employee" }, { id: "employees.deactivate", label: "Activate/deactivate employee" }] }
   ,{ title: "Payroll", options: [{ id: "payroll.create", label: "Release salary / reimbursement" }] }
 ];
@@ -219,7 +219,9 @@ export function App() {
     return () => window.removeEventListener("efms:toast", listener);
   }, []);
 
-  const visibleNav = user?.role === "super_admin" ? nav : nav.filter((item) => user?.permissions?.sidebar?.includes(item.id));
+  const visibleNav = user?.role === "super_admin"
+    ? nav
+    : nav.filter((item) => user?.permissions?.sidebar?.includes(item.id) || user?.permissions?.actions?.includes(`${item.id}.view`));
 
   useEffect(() => {
     if (user && visibleNav.length > 0 && !visibleNav.some((item) => item.id === view)) {

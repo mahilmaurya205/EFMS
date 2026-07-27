@@ -13,6 +13,7 @@ vouchersRouter.use(requireAuth, requirePermission("vouchers"));
 
 vouchersRouter.get(
   "/",
+  requireAction("vouchers.view"),
   asyncHandler(async (_req, res) => {
     const vouchers = await Voucher.find({ sourceType: { $ne: "payroll" } }).populate("givenBy", "name").sort({ createdAt: -1 }).lean();
     res.json(vouchers);
