@@ -25,6 +25,32 @@
   line-height: 1.5;
 }
 
+.advanceDetail {
+  margin-top: 24px;
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--panel);
+}
+
+.advanceDetail .subForm {
+  margin: 20px 0;
+  background: color-mix(in srgb, var(--panel) 82%, var(--accent) 18%);
+}
+
+.advanceDetail > h3 {
+  margin: 24px 0 10px;
+}
+
+.advanceSummary {
+  margin-bottom: 18px;
+}
+
+.badText {
+  color: #ef6b73;
+  font-weight: 700;
+}
+
 :root[data-theme="dark"] {
   color-scheme: dark;
   --bg: #050914;

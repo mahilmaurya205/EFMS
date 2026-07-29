@@ -94,6 +94,22 @@ export type Transfer = {
   createdAt: string;
 };
 
+export type FundAdvanceExpense = {
+  _id: string; expenseDate: string; category: string; purpose: string; vendor?: string; amount: number;
+  paymentMode: "cash" | "upi" | "bank" | "card" | "other"; referenceNo?: string; remarks?: string;
+  proofFileName?: string; proofData?: string; createdAt: string;
+};
+
+export type FundAdvance = {
+  _id: string; advanceNumber: string; recipientType: "employee" | "other";
+  employeeId?: { _id: string; name: string; email?: string; employeeCode?: string } | string;
+  recipientName: string; recipientPhone?: string; purpose: string; amount: number; source: "cash" | "bank";
+  bankAccount?: string; issueDate: string; dueDate?: string; referenceNo?: string; remarks?: string;
+  status: "open" | "settled"; expenses: FundAdvanceExpense[];
+  refunds: Array<{ _id: string; refundDate: string; amount: number; mode: "cash" | "bank"; bankAccount?: string; referenceNo?: string; remarks?: string }>;
+  spent: number; refunded: number; outstanding: number; excess: number; createdAt: string;
+};
+
 export type RoleOption = {
   _id: string;
   name: string;

@@ -27,6 +27,7 @@ import { reconciliationRouter } from "./routes/reconciliation.js";
 import { apiRateLimit, authRateLimit, requestContext } from "./middleware/security.js";
 import { dataSafetyRouter } from "./routes/dataSafety.js";
 import { payrollRouter } from "./routes/payroll.js";
+import { fundAdvancesRouter } from "./routes/fundAdvances.js";
 
 export const app = express();
 
@@ -71,6 +72,7 @@ app.use("/api/budgets", budgetsRouter);
 app.use("/api/reconciliation", reconciliationRouter);
 app.use("/api/data-safety", dataSafetyRouter);
 app.use("/api/payroll", payrollRouter);
+app.use("/api/fund-advances", fundAdvancesRouter);
 
 app.use((_req, res) => res.status(404).json({ message: "Endpoint not found", requestId: res.locals.requestId }));
 

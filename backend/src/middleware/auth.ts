@@ -10,6 +10,7 @@ export interface AuthRequest extends Request {
     role: string;
     name: string;
     email: string;
+    employeeProfile?: boolean;
     permissions?: {
       sidebar: string[];
       dashboard: string[];
@@ -46,6 +47,7 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
       role: effectiveRole,
       name: user.name,
       email: user.email,
+      employeeProfile: user.role === "employee",
       permissions
     };
     next();

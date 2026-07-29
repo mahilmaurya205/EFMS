@@ -11,6 +11,7 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { logActivity } from "../services/activity.js";
 import { BankStatementEntry } from "../models/BankStatementEntry.js";
 import { Payroll } from "../models/Payroll.js";
+import { FundAdvance } from "../models/FundAdvance.js";
 
 export const bankAccountsRouter = Router();
 
@@ -36,15 +37,16 @@ function bankRecordEffect(record: { status: string; amount: number }) {
 
 bankAccountsRouter.get(
   "/",
-  requireAnyPermission("bankAccounts", "earnings", "expenses", "transfers", "vouchers", "statements", "reconciliation", "payroll"),
+  requireAnyPermission("bankAccounts", "earnings", "expenses", "transfers", "vouchers", "statements", "reconciliation", "payroll", "advances"),
   asyncHandler(async (_req, res) => {
-    const [accounts, earnings, bankRecords, expenses, transfers, vouchers] = await Promise.all([
+    const [accounts, earnings, bankRecords, expenses, transfers, vouchers, advances] = await Promise.all([
       BankAccount.find({ isArchived: false }).sort({ createdAt: -1 }).lean(),
       Earning.find({ status: { $ne: "archived" }, paymentMode: { $ne: "cash" } }).lean(),
       OperationalRecord.find({ module: "bank", status: { $ne: "archived" } }).lean(),
       Expense.find({ status: { $ne: "archived" }, paidFrom: "office", paymentMode: { $ne: "cash" } }).lean(),
       Transfer.find({ status: { $ne: "archived" } }).lean(),
-      Voucher.find({ status: "issued", type: { $ne: "receipt" }, paymentMode: { $ne: "cash" } }).lean()
+      Voucher.find({ status: "issued", type: { $ne: "receipt" }, paymentMode: { $ne: "cash" } }).lean(),
+      FundAdvance.find({ status: { $ne: "archived" } }).lean()
     ]);
 
     const accountsWithBalance = accounts.map((account) => {
@@ -67,7 +69,9 @@ bankAccountsRouter.get(
       const voucherTotal = vouchers
         .filter((voucher) => voucher.bankAccount === label || voucher.bankAccount === account.bankName || voucher.bankAccount === account.accountNumber)
         .reduce((sum, voucher) => sum + voucher.amount, 0);
-      return { ...account, openingBalance: account.currentBalance, isActive: account.isActive !== false, currentBalance: account.currentBalance + earningTotal + bankBookTotal - officeExpenseTotal + transferTotal - voucherTotal };
+      const advanceIssued = advances.filter((item) => item.source === "bank" && (item.bankAccount === label || item.bankAccount === account.bankName || item.bankAccount === account.accountNumber)).reduce((sum, item) => sum + item.amount, 0);
+      const advanceRefunded = advances.flatMap((item) => item.refunds).filter((item) => item.mode === "bank" && (item.bankAccount === label || item.bankAccount === account.bankName || item.bankAccount === account.accountNumber)).reduce((sum, item) => sum + item.amount, 0);
+      return { ...account, openingBalance: account.currentBalance, isActive: account.isActive !== false, currentBalance: account.currentBalance + earningTotal + bankBookTotal - officeExpenseTotal + transferTotal - voucherTotal - advanceIssued + advanceRefunded };
     });
 
     res.json(accountsWithBalance);

@@ -12,7 +12,7 @@ import { RefreshSession } from "../models/RefreshSession.js";
 
 export const usersRouter = Router();
 
-usersRouter.use(requireAuth, requireAnyPermission("employees", "expenses", "vouchers", "roles", "payroll"));
+usersRouter.use(requireAuth, requireAnyPermission("employees", "expenses", "vouchers", "roles", "payroll", "advances"));
 
 const strongPasswordSchema = z.string()
   .min(8, "Password must be at least 8 characters")

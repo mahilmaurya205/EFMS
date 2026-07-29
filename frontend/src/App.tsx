@@ -9,6 +9,7 @@ import {
   Download,
   ArrowLeftRight,
   FolderOpen,
+  HandCoins,
   Pencil,
   FileText,
   Eye,
@@ -28,7 +29,7 @@ import {
   XCircle
 } from "lucide-react";
 import { api, apiBlob, clearToken, getToken, refreshAccessToken, rupee, setToken, type User } from "./api";
-import type { BankAccount, Budget, Expense, Invoice, MasterOption, OperationalRecord, Payroll, RoleOption, StatementEntry, Transfer, Voucher } from "./types";
+import type { BankAccount, Budget, Expense, FundAdvance, Invoice, MasterOption, OperationalRecord, Payroll, RoleOption, StatementEntry, Transfer, Voucher } from "./types";
 import type { Earning } from "./types";
 
 type Dashboard = {
@@ -138,6 +139,7 @@ const nav = [
   { id: "earnings", label: "Earnings", icon: TrendingUp },
   { id: "bankAccounts", label: "Bank Accounts", icon: Banknote },
   { id: "transfers", label: "Cash/Bank Transfer", icon: ArrowLeftRight },
+  { id: "advances", label: "Fund Advances", icon: HandCoins },
   { id: "statements", label: "Statements", icon: ClipboardList },
   { id: "reports", label: "Reports & Analytics", icon: TrendingUp },
   { id: "budgets", label: "Budgets", icon: BadgeIndianRupee },
@@ -166,6 +168,7 @@ const actionPermissionGroups = [
   { title: "Expenses", options: [{ id: "expenses.create", label: "Create expense" }, { id: "expenses.edit", label: "Edit expense" }, { id: "expenses.archive", label: "Archive expense" }, { id: "expenses.manage_categories", label: "Manage categories" }] },
   { title: "Earnings", options: [{ id: "earnings.create", label: "Create earning" }, { id: "earnings.edit", label: "Edit earning" }, { id: "earnings.archive", label: "Archive earning" }, { id: "earnings.manage_sources", label: "Manage sources" }, { id: "earnings.manage_projects", label: "Manage projects" }] },
   { title: "Cash/Bank Transfers", options: [{ id: "transfers.create", label: "Create transfer" }, { id: "transfers.edit", label: "Edit transfer" }, { id: "transfers.archive", label: "Archive transfer" }] },
+  { title: "Fund Advances", options: [{ id: "advances.create", label: "Issue advance" }, { id: "advances.add_expense", label: "Add expense usage" }, { id: "advances.refund", label: "Record returned money" }, { id: "advances.settle", label: "Settle advance" }, { id: "advances.archive", label: "Archive unused advance" }] },
   { title: "Vouchers", options: [{ id: "vouchers.view", label: "View voucher" }, { id: "vouchers.create", label: "Create voucher" }, { id: "vouchers.edit", label: "Edit voucher" }, { id: "vouchers.cancel", label: "Cancel voucher" }, { id: "vouchers.download", label: "Download voucher" }] },
   { title: "Employees", options: [{ id: "employees.create", label: "Create employee" }, { id: "employees.edit", label: "Edit employee" }, { id: "employees.deactivate", label: "Activate/deactivate employee" }] }
   ,{ title: "Payroll", options: [{ id: "payroll.create", label: "Release salary / reimbursement" }] }
@@ -291,6 +294,7 @@ export function App() {
         {view === "earnings" && <EarningsView user={user} />}
         {view === "bankAccounts" && <BankAccountsView user={user} />}
         {view === "transfers" && <TransfersView user={user} />}
+        {view === "advances" && <FundAdvancesView user={user} />}
         {view === "statements" && <StatementsView />}
         {view === "reports" && <ReportsView />}
         {view === "budgets" && <BudgetsView user={user} />}
@@ -1184,6 +1188,124 @@ function TransfersView({ user }: { user: User }) {
   );
 }
 
+function FundAdvancesView({ user }: { user: User }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [advances, setAdvances] = useState<FundAdvance[]>([]);
+  const [employees, setEmployees] = useState<User[]>([]);
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [selected, setSelected] = useState<FundAdvance | null>(null);
+  const [preview, setPreview] = useState<{ name: string; data: string } | null>(null);
+  const [filters, setFilters] = useState({ search: "", status: "", from: "", to: "" });
+  const [page, setPage] = useState(1);
+  const [form, setForm] = useState({ recipientType: "employee", employeeId: "", recipientName: "", recipientPhone: "", purpose: "", amount: 0, source: "cash", bankAccount: "", issueDate: today, dueDate: "", referenceNo: "", remarks: "" });
+  const [expenseForm, setExpenseForm] = useState({ expenseDate: today, category: "", purpose: "", vendor: "", amount: 0, paymentMode: "cash", referenceNo: "", remarks: "", proofFileName: "", proofData: "" });
+  const [refundForm, setRefundForm] = useState({ refundDate: today, amount: 0, mode: "cash", bankAccount: "", referenceNo: "", remarks: "" });
+  const canCreate = canAction(user, "advances.create");
+  const canExpense = canAction(user, "advances.add_expense");
+  const canRefund = canAction(user, "advances.refund");
+  const canSettle = canAction(user, "advances.settle");
+  const canArchive = canAction(user, "advances.archive");
+
+  async function load(selectId?: string) {
+    const requests: [Promise<FundAdvance[]>, Promise<BankAccount[]>, Promise<User[]>] = [
+      api<FundAdvance[]>("/fund-advances"),
+      (canCreate || canRefund) ? api<BankAccount[]>("/bank-accounts") : Promise.resolve([]),
+      canCreate ? api<User[]>("/users") : Promise.resolve([])
+    ];
+    const [advanceData, accountData, userData] = await Promise.all(requests);
+    setAdvances(advanceData); setBankAccounts(accountData); setEmployees(userData.filter((item) => item.employeeProfile || item.role === "employee"));
+    const id = selectId || selected?._id;
+    setSelected(id ? advanceData.find((item) => item._id === id) || null : null);
+  }
+
+  useEffect(() => { load(); }, []);
+
+  async function issueAdvance(event: React.FormEvent) {
+    event.preventDefault();
+    const employee = employees.find((item) => item.id === form.employeeId || item._id === form.employeeId);
+    const payload = { ...form, recipientName: form.recipientType === "employee" ? employee?.name || "" : form.recipientName, bankAccount: form.source === "bank" ? form.bankAccount : "" };
+    const created = await api<FundAdvance>("/fund-advances", { method: "POST", body: JSON.stringify(cleanPayload(payload)) });
+    setForm({ recipientType: "employee", employeeId: "", recipientName: "", recipientPhone: "", purpose: "", amount: 0, source: "cash", bankAccount: "", issueDate: today, dueDate: "", referenceNo: "", remarks: "" });
+    await load(created._id);
+  }
+
+  async function addExpense(event: React.FormEvent) {
+    event.preventDefault(); if (!selected) return;
+    await api(`/fund-advances/${selected._id}/expenses`, { method: "POST", body: JSON.stringify(cleanPayload(expenseForm)) });
+    setExpenseForm({ expenseDate: today, category: "", purpose: "", vendor: "", amount: 0, paymentMode: "cash", referenceNo: "", remarks: "", proofFileName: "", proofData: "" });
+    await load(selected._id);
+  }
+
+  async function addRefund(event: React.FormEvent) {
+    event.preventDefault(); if (!selected) return;
+    await api(`/fund-advances/${selected._id}/refunds`, { method: "POST", body: JSON.stringify(cleanPayload({ ...refundForm, bankAccount: refundForm.mode === "bank" ? refundForm.bankAccount : "" })) });
+    setRefundForm({ refundDate: today, amount: 0, mode: "cash", bankAccount: "", referenceNo: "", remarks: "" });
+    await load(selected._id);
+  }
+
+  async function settle() {
+    if (!selected || !await confirmPopup(`Settle ${selected.advanceNumber}?`, "Settle advance")) return;
+    await api(`/fund-advances/${selected._id}/settle`, { method: "PATCH", body: "{}" }); await load(selected._id);
+  }
+
+  async function archive(item: FundAdvance) {
+    if (!await confirmPopup(`Archive ${item.advanceNumber}? Only unused advances can be archived.`, "Archive advance")) return;
+    await api(`/fund-advances/${item._id}`, { method: "DELETE" }); setSelected(null); await load();
+  }
+
+  async function chooseProof(file?: File) {
+    if (!file) return;
+    if (file.size > 2_000_000) { window.dispatchEvent(new CustomEvent("efms:toast", { detail: { message: "Proof file must be 2 MB or smaller", tone: "error" } })); return; }
+    setExpenseForm({ ...expenseForm, proofFileName: file.name, proofData: await fileToDataUrl(file) });
+  }
+
+  const totals = advances.reduce((result, item) => ({ issued: result.issued + item.amount, spent: result.spent + item.spent, outstanding: result.outstanding + item.outstanding, excess: result.excess + item.excess }), { issued: 0, spent: 0, outstanding: 0, excess: 0 });
+  const filtered = advances.filter((item) => {
+    const query = filters.search.toLowerCase();
+    return (!query || `${item.advanceNumber} ${item.recipientName} ${item.purpose}`.toLowerCase().includes(query))
+      && (!filters.status || item.status === filters.status) && withinDateRange(item.issueDate, filters.from, filters.to);
+  });
+
+  return (
+    <section>
+      {preview && <FilePreviewModal fileName={preview.name} data={preview.data} onClose={() => setPreview(null)} />}
+      <div className="sectionHead"><div><span className="eyebrow">Imprest & Accountability</span><h2>Fund Advances</h2><p className="muted">Track money issued to a person, every spend, proof, refund and final settlement.</p></div></div>
+      <div className="summaryStrip advanceSummary">
+        <div><span>Total Issued</span><strong>{rupee(totals.issued)}</strong></div>
+        <div><span>Usage Recorded</span><strong>{rupee(totals.spent)}</strong></div>
+        <div><span>With Recipients</span><strong>{rupee(totals.outstanding)}</strong></div>
+        <div><span>Extra Spent</span><strong>{rupee(totals.excess)}</strong></div>
+      </div>
+      {canCreate && <form className="formGrid" onSubmit={issueAdvance}>
+        <label>Recipient Type<select value={form.recipientType} onChange={(event) => setForm({ ...form, recipientType: event.target.value, employeeId: "", recipientName: "" })}><option value="employee">Employee</option><option value="other">Other Person</option></select></label>
+        {form.recipientType === "employee" ? <label>Employee<select required value={form.employeeId} onChange={(event) => setForm({ ...form, employeeId: event.target.value })}><option value="">Select employee</option>{employees.map((item) => <option key={item.id || item._id} value={item.id || item._id}>{item.name}{item.employeeCode ? ` (${item.employeeCode})` : ""}</option>)}</select></label>
+          : <><label>Person Name<input required value={form.recipientName} onChange={(event) => setForm({ ...form, recipientName: event.target.value })} /></label><label>Phone<input value={form.recipientPhone} onChange={(event) => setForm({ ...form, recipientPhone: event.target.value })} /></label></>}
+        <label>Advance Purpose<input required value={form.purpose} onChange={(event) => setForm({ ...form, purpose: event.target.value })} /></label>
+        <label>Amount<input required min="0.01" step="0.01" type="number" value={form.amount || ""} onChange={(event) => setForm({ ...form, amount: Number(event.target.value) })} /></label>
+        <label>Paid From<select value={form.source} onChange={(event) => setForm({ ...form, source: event.target.value, bankAccount: "" })}><option value="cash">Cash in Hand</option><option value="bank">Bank Account</option></select></label>
+        {form.source === "bank" && <label>Bank Account<select required value={form.bankAccount} onChange={(event) => setForm({ ...form, bankAccount: event.target.value })}><option value="">Select bank</option>{bankAccounts.filter((item) => item.isActive !== false).map((item) => { const label = `${item.bankName} - ${item.accountNumber}`; return <option key={item._id} value={label}>{label}</option>; })}</select></label>}
+        <label>Issue Date<input required type="date" value={form.issueDate} onChange={(event) => setForm({ ...form, issueDate: event.target.value })} /></label>
+        <label>Settlement Due<input type="date" value={form.dueDate} onChange={(event) => setForm({ ...form, dueDate: event.target.value })} /></label>
+        <label>Payment Reference<input value={form.referenceNo} onChange={(event) => setForm({ ...form, referenceNo: event.target.value })} /></label>
+        <label className="wide">Remarks<textarea rows={2} value={form.remarks} onChange={(event) => setForm({ ...form, remarks: event.target.value })} /></label>
+        <div className="formActions"><button className="primary compact"><HandCoins size={16} /> Issue Advance</button></div>
+      </form>}
+      <FilterBar><label>Search<input placeholder="Number, recipient, purpose" value={filters.search} onChange={(event) => { setFilters({ ...filters, search: event.target.value }); setPage(1); }} /></label><label>Status<select value={filters.status} onChange={(event) => { setFilters({ ...filters, status: event.target.value }); setPage(1); }}><option value="">All</option><option value="open">Open</option><option value="settled">Settled</option></select></label><label>From<input type="date" value={filters.from} onChange={(event) => setFilters({ ...filters, from: event.target.value })} /></label><label>To<input type="date" value={filters.to} onChange={(event) => setFilters({ ...filters, to: event.target.value })} /></label></FilterBar>
+      <div className="tableWrap"><table><thead><tr><th>No.</th><th>Recipient</th><th>Purpose</th><th>Source</th><th>Issued</th><th>Spent</th><th>Returned</th><th>Balance</th><th>Status</th><th>Actions</th></tr></thead><tbody>{paginateRows(filtered, page).map((item) => <tr key={item._id}><td>{item.advanceNumber}</td><td>{item.recipientName}</td><td>{item.purpose}</td><td>{item.source === "bank" ? item.bankAccount : "Cash"}</td><td>{rupee(item.amount)}</td><td>{rupee(item.spent)}</td><td>{rupee(item.refunded)}</td><td>{item.excess ? <span className="badText">{rupee(item.excess)} payable</span> : rupee(item.outstanding)}</td><td><Status value={item.status} /></td><td className="actions"><button className="secondary compact" onClick={() => setSelected(item)}><Eye size={15} /> Details</button>{canArchive && !item.expenses.length && !item.refunds.length && <button className="iconButton bad" onClick={() => archive(item)} title="Archive"><Trash2 size={15} /></button>}</td></tr>)}</tbody></table></div>
+      <Pagination page={page} total={filtered.length} onPage={setPage} />
+      {selected && <div className="advanceDetail">
+        <div className="sectionHead"><div><span className="eyebrow">{selected.advanceNumber}</span><h3>{selected.recipientName} · {selected.purpose}</h3><p className="muted">Issued {rupee(selected.amount)} on {toDateInputValue(selected.issueDate)} · Due {selected.dueDate ? toDateInputValue(selected.dueDate) : "not set"}</p></div><button className="iconButton" onClick={() => setSelected(null)} title="Close"><XCircle size={20} /></button></div>
+        <div className="summaryStrip"><div><span>Spent</span><strong>{rupee(selected.spent)}</strong></div><div><span>Returned</span><strong>{rupee(selected.refunded)}</strong></div><div><span>Outstanding</span><strong>{rupee(selected.outstanding)}</strong></div><div><span>Extra Payable</span><strong>{rupee(selected.excess)}</strong></div></div>
+        {canExpense && selected.status !== "settled" && <form className="formGrid subForm" onSubmit={addExpense}><h3 className="wide">Add Usage / Bill</h3><label>Date<input required type="date" value={expenseForm.expenseDate} onChange={(event) => setExpenseForm({ ...expenseForm, expenseDate: event.target.value })} /></label><label>Category<input required value={expenseForm.category} onChange={(event) => setExpenseForm({ ...expenseForm, category: event.target.value })} /></label><label>Purpose<input required value={expenseForm.purpose} onChange={(event) => setExpenseForm({ ...expenseForm, purpose: event.target.value })} /></label><label>Vendor<input value={expenseForm.vendor} onChange={(event) => setExpenseForm({ ...expenseForm, vendor: event.target.value })} /></label><label>Amount<input required min="0.01" step="0.01" type="number" value={expenseForm.amount || ""} onChange={(event) => setExpenseForm({ ...expenseForm, amount: Number(event.target.value) })} /></label><label>Payment Mode<select value={expenseForm.paymentMode} onChange={(event) => setExpenseForm({ ...expenseForm, paymentMode: event.target.value })}><option value="cash">Cash</option><option value="upi">UPI</option><option value="bank">Bank</option><option value="card">Card</option><option value="other">Other</option></select></label><label>Bill / Reference<input value={expenseForm.referenceNo} onChange={(event) => setExpenseForm({ ...expenseForm, referenceNo: event.target.value })} /></label><label>Proof (max 2 MB)<input type="file" accept="image/png,image/jpeg,image/webp,image/avif,image/gif,application/pdf" onChange={(event) => chooseProof(event.target.files?.[0])} /></label><label className="wide">Remarks<textarea rows={2} value={expenseForm.remarks} onChange={(event) => setExpenseForm({ ...expenseForm, remarks: event.target.value })} /></label><div className="formActions"><button className="primary compact"><Plus size={15} /> Add Expense</button></div></form>}
+        <h3>Usage History</h3><div className="tableWrap"><table><thead><tr><th>Date</th><th>Category</th><th>Purpose / Vendor</th><th>Mode</th><th>Reference</th><th>Proof</th><th>Amount</th></tr></thead><tbody>{selected.expenses.length ? selected.expenses.map((item) => <tr key={item._id}><td>{toDateInputValue(item.expenseDate)}</td><td>{item.category}</td><td>{item.purpose}{item.vendor ? ` · ${item.vendor}` : ""}</td><td>{item.paymentMode}</td><td>{item.referenceNo || ""}</td><td>{item.proofFileName ? <UploadedFileButton fileName={item.proofFileName} available={Boolean(item.proofData)} onView={() => item.proofData && setPreview({ name: item.proofFileName!, data: item.proofData })} /> : "—"}</td><td>{rupee(item.amount)}</td></tr>) : <tr><td colSpan={7} className="muted">No usage entered yet.</td></tr>}</tbody></table></div>
+        {canRefund && selected.status !== "settled" && selected.outstanding > 0 && <form className="formGrid subForm" onSubmit={addRefund}><h3 className="wide">Return Unused Money</h3><label>Date<input required type="date" value={refundForm.refundDate} onChange={(event) => setRefundForm({ ...refundForm, refundDate: event.target.value })} /></label><label>Amount (max {rupee(selected.outstanding)})<input required min="0.01" max={selected.outstanding} step="0.01" type="number" value={refundForm.amount || ""} onChange={(event) => setRefundForm({ ...refundForm, amount: Number(event.target.value) })} /></label><label>Received In<select value={refundForm.mode} onChange={(event) => setRefundForm({ ...refundForm, mode: event.target.value, bankAccount: "" })}><option value="cash">Cash in Hand</option><option value="bank">Bank</option></select></label>{refundForm.mode === "bank" && <label>Bank<select required value={refundForm.bankAccount} onChange={(event) => setRefundForm({ ...refundForm, bankAccount: event.target.value })}><option value="">Select bank</option>{bankAccounts.map((item) => { const label = `${item.bankName} - ${item.accountNumber}`; return <option key={item._id} value={label}>{label}</option>; })}</select></label>}<label>Reference<input value={refundForm.referenceNo} onChange={(event) => setRefundForm({ ...refundForm, referenceNo: event.target.value })} /></label><label className="wide">Remarks<textarea rows={2} value={refundForm.remarks} onChange={(event) => setRefundForm({ ...refundForm, remarks: event.target.value })} /></label><div className="formActions"><button className="primary compact">Record Return</button></div></form>}
+        <h3>Return History</h3><div className="tableWrap"><table><thead><tr><th>Date</th><th>Received In</th><th>Reference</th><th>Remarks</th><th>Amount</th></tr></thead><tbody>{selected.refunds.length ? selected.refunds.map((item) => <tr key={item._id}><td>{toDateInputValue(item.refundDate)}</td><td>{item.mode === "bank" ? item.bankAccount : "Cash"}</td><td>{item.referenceNo || ""}</td><td>{item.remarks || ""}</td><td>{rupee(item.amount)}</td></tr>) : <tr><td colSpan={5} className="muted">No money returned yet.</td></tr>}</tbody></table></div>
+        {canSettle && selected.status === "open" && selected.outstanding === 0 && selected.excess === 0 && <div className="formActions"><button className="primary compact" onClick={settle}><CheckCircle2 size={16} /> Mark Settled</button></div>}
+      </div>}
+    </section>
+  );
+}
+
 function StatementsView() {
   const [statementType, setStatementType] = useState<"bank" | "cash">("bank");
   const [bankAccount, setBankAccount] = useState("");
@@ -1195,15 +1317,17 @@ function StatementsView() {
   const [vouchers, setVouchers] = useState<Voucher[]>([]);
   const [payrolls, setPayrolls] = useState<Payroll[]>([]);
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [fundAdvances, setFundAdvances] = useState<FundAdvance[]>([]);
 
   useEffect(() => {
-    Promise.all([api<Earning[]>("/earnings"), api<Expense[]>("/expenses"), api<Transfer[]>("/transfers"), api<Voucher[]>("/vouchers"), api<BankAccount[]>("/bank-accounts"), api<Payroll[]>("/payroll")]).then(([earningData, expenseData, transferData, voucherData, accountData, payrollData]) => {
+    Promise.all([api<Earning[]>("/earnings"), api<Expense[]>("/expenses"), api<Transfer[]>("/transfers"), api<Voucher[]>("/vouchers"), api<BankAccount[]>("/bank-accounts"), api<Payroll[]>("/payroll"), api<FundAdvance[]>("/fund-advances")]).then(([earningData, expenseData, transferData, voucherData, accountData, payrollData, advanceData]) => {
       setEarnings(earningData);
       setExpenses(expenseData);
       setTransfers(transferData);
       setVouchers(voucherData);
       setBankAccounts(accountData);
       setPayrolls(payrollData);
+      setFundAdvances(advanceData);
     });
   }, []);
 
@@ -1212,7 +1336,9 @@ function StatementsView() {
     ...expenses.filter((expense) => expense.status !== "archived" && expense.paidFrom === "office" && expense.paymentMode === "bank").map((expense) => ({ date: expense.createdAt, timestamp: expense.createdAt, type: "Expense", bankAccount: expense.bankAccount || "Unlinked Bank", particulars: expense.purpose, credit: 0, debit: expense.amount, referenceNo: "", remarks: expense.remarks || "" })),
     ...transfers.filter((transfer) => transfer.status !== "archived").map((transfer) => ({ date: transfer.transferDate, timestamp: transfer.createdAt, type: transfer.type === "cash_to_bank" ? "Cash Deposit" : "Cash Withdrawal", bankAccount: transfer.bankAccount, particulars: transfer.type === "cash_to_bank" ? "Cash to Bank" : "Bank to Cash", credit: transfer.type === "cash_to_bank" ? transfer.amount : 0, debit: transfer.type === "bank_to_cash" ? transfer.amount : 0, referenceNo: transfer.referenceNo || "", remarks: transfer.remarks || "" })),
     ...vouchers.filter((voucher) => voucher.status === "issued" && voucher.type !== "receipt" && voucher.paymentMode === "bank").map((voucher) => ({ date: voucher.createdAt, timestamp: voucher.createdAt, type: "Voucher Payment", bankAccount: voucher.bankAccount || "Unlinked Bank", particulars: voucher.purpose, credit: 0, debit: voucher.amount, referenceNo: voucher.referenceNo || voucher.voucherNumber, remarks: voucher.receiver || "" })),
-    ...payrolls.filter((payroll) => payroll.status === "paid" && payroll.paymentMode !== "cash").map((payroll) => ({ date: payroll.paymentDate, timestamp: payroll.paymentDate, type: "Salary Payment", bankAccount: payroll.bankAccount || "Unlinked Bank", particulars: `${payroll.employeeId?.name || "Employee"} - Salary ${payroll.salaryMonth}`, credit: 0, debit: payroll.totalPaid, referenceNo: payroll.referenceNo || payroll.payrollNumber, remarks: payroll.includeExpenses ? `Salary + reimbursement ${rupee(payroll.reimbursementAmount)}` : "Salary only" }))
+    ...payrolls.filter((payroll) => payroll.status === "paid" && payroll.paymentMode !== "cash").map((payroll) => ({ date: payroll.paymentDate, timestamp: payroll.paymentDate, type: "Salary Payment", bankAccount: payroll.bankAccount || "Unlinked Bank", particulars: `${payroll.employeeId?.name || "Employee"} - Salary ${payroll.salaryMonth}`, credit: 0, debit: payroll.totalPaid, referenceNo: payroll.referenceNo || payroll.payrollNumber, remarks: payroll.includeExpenses ? `Salary + reimbursement ${rupee(payroll.reimbursementAmount)}` : "Salary only" })),
+    ...fundAdvances.filter((advance) => advance.source === "bank").map((advance) => ({ date: advance.issueDate, timestamp: advance.createdAt, type: "Fund Advance Issued", bankAccount: advance.bankAccount || "Unlinked Bank", particulars: `${advance.recipientName} - ${advance.purpose}`, credit: 0, debit: advance.amount, referenceNo: advance.referenceNo || advance.advanceNumber, remarks: `Advance ${advance.advanceNumber}` })),
+    ...fundAdvances.flatMap((advance) => advance.refunds.filter((refund) => refund.mode === "bank").map((refund) => ({ date: refund.refundDate, timestamp: refund.refundDate, type: "Fund Advance Returned", bankAccount: refund.bankAccount || "Unlinked Bank", particulars: `${advance.recipientName} - Return against ${advance.advanceNumber}`, credit: refund.amount, debit: 0, referenceNo: refund.referenceNo || advance.advanceNumber, remarks: refund.remarks || advance.purpose })))
   ];
 
   const cashRows = [
@@ -1220,7 +1346,9 @@ function StatementsView() {
     ...expenses.filter((expense) => expense.status !== "archived" && expense.paidFrom === "office" && expense.paymentMode === "cash").map((expense) => ({ date: expense.createdAt, timestamp: expense.createdAt, type: "Cash Expense", particulars: expense.purpose, credit: 0, debit: expense.amount, referenceNo: "", remarks: expense.remarks || "" })),
     ...transfers.filter((transfer) => transfer.status !== "archived").map((transfer) => ({ date: transfer.transferDate, timestamp: transfer.createdAt, type: transfer.type === "cash_to_bank" ? "Cash Deposit to Bank" : "Cash Withdrawal from Bank", particulars: transfer.bankAccount, credit: transfer.type === "bank_to_cash" ? transfer.amount : 0, debit: transfer.type === "cash_to_bank" ? transfer.amount : 0, referenceNo: transfer.referenceNo || "", remarks: transfer.remarks || "" })),
     ...vouchers.filter((voucher) => voucher.status === "issued" && voucher.type !== "receipt" && voucher.paymentMode === "cash").map((voucher) => ({ date: voucher.createdAt, timestamp: voucher.createdAt, type: "Voucher Payment", particulars: voucher.purpose, credit: 0, debit: voucher.amount, referenceNo: voucher.referenceNo || voucher.voucherNumber, remarks: voucher.receiver || "" })),
-    ...payrolls.filter((payroll) => payroll.status === "paid" && payroll.paymentMode === "cash").map((payroll) => ({ date: payroll.paymentDate, timestamp: payroll.paymentDate, type: "Salary Payment", particulars: `${payroll.employeeId?.name || "Employee"} - Salary ${payroll.salaryMonth}`, credit: 0, debit: payroll.totalPaid, referenceNo: payroll.referenceNo || payroll.payrollNumber, remarks: payroll.includeExpenses ? `Salary + reimbursement ${rupee(payroll.reimbursementAmount)}` : "Salary only" }))
+    ...payrolls.filter((payroll) => payroll.status === "paid" && payroll.paymentMode === "cash").map((payroll) => ({ date: payroll.paymentDate, timestamp: payroll.paymentDate, type: "Salary Payment", particulars: `${payroll.employeeId?.name || "Employee"} - Salary ${payroll.salaryMonth}`, credit: 0, debit: payroll.totalPaid, referenceNo: payroll.referenceNo || payroll.payrollNumber, remarks: payroll.includeExpenses ? `Salary + reimbursement ${rupee(payroll.reimbursementAmount)}` : "Salary only" })),
+    ...fundAdvances.filter((advance) => advance.source === "cash").map((advance) => ({ date: advance.issueDate, timestamp: advance.createdAt, type: "Fund Advance Issued", particulars: `${advance.recipientName} - ${advance.purpose}`, credit: 0, debit: advance.amount, referenceNo: advance.referenceNo || advance.advanceNumber, remarks: `Advance ${advance.advanceNumber}` })),
+    ...fundAdvances.flatMap((advance) => advance.refunds.filter((refund) => refund.mode === "cash").map((refund) => ({ date: refund.refundDate, timestamp: refund.refundDate, type: "Fund Advance Returned", particulars: `${advance.recipientName} - Return against ${advance.advanceNumber}`, credit: refund.amount, debit: 0, referenceNo: refund.referenceNo || advance.advanceNumber, remarks: refund.remarks || advance.purpose })))
   ];
 
   const rows = (statementType === "bank" ? bankRows.filter((row) => !bankAccount || row.bankAccount === bankAccount) : cashRows)

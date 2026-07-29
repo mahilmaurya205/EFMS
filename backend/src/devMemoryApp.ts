@@ -22,6 +22,7 @@ type User = {
   basicSalary?: number;
   isActive?: boolean;
   joiningDate?: string;
+  employeeProfile?: boolean;
 };
 
 type Earning = {
@@ -147,6 +148,15 @@ type Transfer = {
   createdAt: string;
 };
 
+type FundAdvance = {
+  _id: string; advanceNumber: string; recipientType: "employee" | "other"; employeeId?: string; recipientName: string;
+  recipientPhone?: string; purpose: string; amount: number; source: "cash" | "bank"; bankAccount?: string;
+  issueDate: string; dueDate?: string; referenceNo?: string; remarks?: string; status: "open" | "settled" | "archived";
+  expenses: Array<{ _id: string; expenseDate: string; category: string; purpose: string; vendor?: string; amount: number; paymentMode: string; referenceNo?: string; remarks?: string; proofFileName?: string; proofData?: string; createdAt: string }>;
+  refunds: Array<{ _id: string; refundDate: string; amount: number; mode: "cash" | "bank"; bankAccount?: string; referenceNo?: string; remarks?: string }>;
+  createdAt: string;
+};
+
 const admin: User = {
   id: "dev-admin",
   name: "EFMS Admin",
@@ -164,6 +174,7 @@ const masterOptions: MasterOption[] = [];
 const bankAccounts: BankAccount[] = [];
 const roles: Role[] = [];
 const transfers: Transfer[] = [];
+const fundAdvances: FundAdvance[] = [];
 const activityLogs: unknown[] = [];
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -187,6 +198,7 @@ function loadMemoryData() {
       bankAccounts?: BankAccount[];
       roles?: Role[];
       transfers?: Transfer[];
+      fundAdvances?: FundAdvance[];
       activityLogs?: unknown[];
     };
     replaceArray(users, data.users?.length ? data.users : [admin]);
@@ -200,6 +212,7 @@ function loadMemoryData() {
     replaceArray(bankAccounts, data.bankAccounts);
     replaceArray(roles, data.roles);
     replaceArray(transfers, data.transfers);
+    replaceArray(fundAdvances, data.fundAdvances);
     replaceArray(activityLogs, data.activityLogs);
   } catch (error) {
     console.warn("Could not load local memory data file.", error instanceof Error ? error.message : error);
@@ -207,7 +220,7 @@ function loadMemoryData() {
 }
 
 function saveMemoryData() {
-  const data = { users, earnings, expenses, vouchers, invoices, records, masterOptions, bankAccounts, roles, transfers, activityLogs };
+  const data = { users, earnings, expenses, vouchers, invoices, records, masterOptions, bankAccounts, roles, transfers, fundAdvances, activityLogs };
   try {
     fs.writeFileSync(memoryDbPath, JSON.stringify(data, null, 2));
   } catch (error) {
@@ -250,7 +263,13 @@ function calculatedBankAccountBalance(account: BankAccount) {
     .filter((voucher) => voucher.status === "issued" && voucher.type !== "receipt" && voucher.paymentMode !== "cash")
     .filter((voucher) => voucher.bankAccount === label || voucher.bankAccount === account.bankName || voucher.bankAccount === account.accountNumber)
     .reduce((sum, voucher) => sum + voucher.amount, 0);
-  return account.currentBalance + earningTotal + bankBookTotal - officeExpenseTotal + transferTotal - voucherTotal;
+  const advanceIssued = fundAdvances.filter((item) => item.status !== "archived" && item.source === "bank")
+    .filter((item) => item.bankAccount === label || item.bankAccount === account.bankName || item.bankAccount === account.accountNumber)
+    .reduce((sum, item) => sum + item.amount, 0);
+  const advanceRefunded = fundAdvances.filter((item) => item.status !== "archived").flatMap((item) => item.refunds)
+    .filter((item) => item.mode === "bank" && (item.bankAccount === label || item.bankAccount === account.bankName || item.bankAccount === account.accountNumber))
+    .reduce((sum, item) => sum + item.amount, 0);
+  return account.currentBalance + earningTotal + bankBookTotal - officeExpenseTotal + transferTotal - voucherTotal - advanceIssued + advanceRefunded;
 }
 
 function requireDevAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
@@ -268,6 +287,7 @@ function requireDevAuth(req: express.Request, res: express.Response, next: expre
     (req as express.Request & { user: User & { permissions?: { sidebar: string[]; dashboard: string[]; actions: string[] } } }).user = {
       ...user,
       role: effectiveRole,
+      employeeProfile: user.role === "employee",
       permissions: { sidebar: role?.sidebarPermissions ?? [], dashboard: role?.dashboardPermissions ?? [], actions: role?.actionPermissions ?? [] }
     };
     next();
@@ -329,15 +349,20 @@ export function createDevMemoryApp() {
     const todayIncome = earnings
       .filter((earning) => earning.createdAt.startsWith(today))
       .reduce((sum, earning) => sum + earning.paidAmount, 0);
+    const advanceExpenses = fundAdvances.filter((item) => item.status !== "archived").flatMap((item) => item.expenses);
     const todayExpense = expenses
       .filter((expense) => expense.createdAt.startsWith(today) && expense.status !== "archived")
-      .reduce((sum, expense) => sum + expense.amount, 0);
+      .reduce((sum, expense) => sum + expense.amount, 0) + advanceExpenses.filter((item) => item.expenseDate.startsWith(today)).reduce((sum, item) => sum + item.amount, 0);
     const totalIncome = earnings
       .filter((earning) => earning.status !== "archived")
       .reduce((sum, earning) => sum + earning.paidAmount, 0);
     const totalExpense = expenses
       .filter((expense) => expense.status !== "archived")
-      .reduce((sum, expense) => sum + expense.amount, 0);
+      .reduce((sum, expense) => sum + expense.amount, 0) + advanceExpenses.reduce((sum, item) => sum + item.amount, 0);
+    const cashAdvanceNet = fundAdvances.filter((item) => item.status !== "archived" && item.source === "cash").reduce((sum, item) => sum + item.amount, 0)
+      - fundAdvances.filter((item) => item.status !== "archived").flatMap((item) => item.refunds).filter((item) => item.mode === "cash").reduce((sum, item) => sum + item.amount, 0);
+    const bankAdvanceNet = fundAdvances.filter((item) => item.status !== "archived" && item.source === "bank").reduce((sum, item) => sum + item.amount, 0)
+      - fundAdvances.filter((item) => item.status !== "archived").flatMap((item) => item.refunds).filter((item) => item.mode === "bank").reduce((sum, item) => sum + item.amount, 0);
     const cashInHand = earnings
       .filter((earning) => earning.status !== "archived" && earning.paymentMode === "cash")
       .reduce((sum, earning) => sum + earning.paidAmount, 0) -
@@ -352,14 +377,14 @@ export function createDevMemoryApp() {
         .reduce((sum, transfer) => sum + transfer.amount, 0) -
       vouchers
         .filter((voucher) => voucher.status === "issued" && voucher.type !== "receipt" && voucher.paymentMode === "cash")
-        .reduce((sum, voucher) => sum + voucher.amount, 0);
+        .reduce((sum, voucher) => sum + voucher.amount, 0) - cashAdvanceNet;
     const bankBalance =
       bankAccounts
         .filter((account) => !account.isArchived && account.isActive !== false)
         .reduce((sum, account) => sum + calculatedBankAccountBalance(account), 0) +
       earnings
         .filter((earning) => earning.status !== "archived" && earning.paymentMode !== "cash" && !earning.bankAccount)
-        .reduce((sum, earning) => sum + earning.paidAmount, 0);
+        .reduce((sum, earning) => sum + earning.paidAmount, 0) - bankAdvanceNet;
 
     res.json({
       totalIncome,
@@ -773,6 +798,63 @@ export function createDevMemoryApp() {
     transfer.status = "archived";
     activityLogs.unshift({ action: "transfer.archive", entityType: "transfer", entityId: transfer._id, createdAt: new Date().toISOString() });
     res.json(transfer);
+  });
+
+  function withAdvanceTotals(item: FundAdvance) {
+    const spent = item.expenses.reduce((sum, row) => sum + row.amount, 0);
+    const refunded = item.refunds.reduce((sum, row) => sum + row.amount, 0);
+    return { ...item, spent, refunded, outstanding: Math.max(item.amount - spent - refunded, 0), excess: Math.max(spent + refunded - item.amount, 0) };
+  }
+
+  app.get("/api/fund-advances", requireDevAuth, (req, res) => {
+    const current = (req as express.Request & { user: User }).user;
+    res.json(fundAdvances.filter((item) => item.status !== "archived" && (!current.employeeProfile || item.employeeId === current.id)).map(withAdvanceTotals));
+  });
+
+  app.post("/api/fund-advances", requireDevAuth, (req, res) => {
+    const body = req.body as Partial<FundAdvance>;
+    if (!body.recipientType || !body.recipientName || !body.purpose || !body.amount || !body.source || !body.issueDate) return res.status(400).json({ message: "Recipient, purpose, amount, source and date are required" });
+    const item: FundAdvance = { _id: id("advance"), advanceNumber: `AV${String(fundAdvances.length + 1).padStart(5, "0")}`, recipientType: body.recipientType, employeeId: body.employeeId, recipientName: body.recipientName, recipientPhone: body.recipientPhone || "", purpose: body.purpose, amount: Number(body.amount), source: body.source, bankAccount: body.source === "bank" ? body.bankAccount : "", issueDate: body.issueDate, dueDate: body.dueDate, referenceNo: body.referenceNo || "", remarks: body.remarks || "", status: "open", expenses: [], refunds: [], createdAt: new Date().toISOString() };
+    fundAdvances.unshift(item); activityLogs.unshift({ action: "advance.create", entityType: "fund_advance", entityId: item._id, createdAt: item.createdAt });
+    res.status(201).json(withAdvanceTotals(item));
+  });
+
+  app.post("/api/fund-advances/:id/expenses", requireDevAuth, (req, res) => {
+    const item = fundAdvances.find((row) => row._id === req.params.id && row.status !== "archived");
+    if (!item) return res.status(404).json({ message: "Advance not found" });
+    if (item.status === "settled") return res.status(400).json({ message: "Settled advance cannot be changed" });
+    const body = req.body as FundAdvance["expenses"][number];
+    if (!body.expenseDate || !body.category || !body.purpose || !body.amount) return res.status(400).json({ message: "Date, category, purpose and amount are required" });
+    item.expenses.push({ ...body, _id: id("advance-expense"), amount: Number(body.amount), createdAt: new Date().toISOString() });
+    activityLogs.unshift({ action: "advance.expense.add", entityType: "fund_advance", entityId: item._id, createdAt: new Date().toISOString() });
+    res.status(201).json(withAdvanceTotals(item));
+  });
+
+  app.post("/api/fund-advances/:id/refunds", requireDevAuth, (req, res) => {
+    const item = fundAdvances.find((row) => row._id === req.params.id && row.status !== "archived");
+    if (!item) return res.status(404).json({ message: "Advance not found" });
+    if (item.status === "settled") return res.status(400).json({ message: "Settled advance cannot be changed" });
+    const body = req.body as FundAdvance["refunds"][number];
+    const current = withAdvanceTotals(item);
+    if (!body.refundDate || !body.amount || !body.mode || Number(body.amount) > current.outstanding) return res.status(400).json({ message: "Valid refund within outstanding amount is required" });
+    item.refunds.push({ ...body, _id: id("advance-refund"), amount: Number(body.amount) });
+    const updated = withAdvanceTotals(item); if (updated.outstanding === 0 && updated.excess === 0) item.status = "settled";
+    activityLogs.unshift({ action: "advance.refund.add", entityType: "fund_advance", entityId: item._id, createdAt: new Date().toISOString() });
+    res.status(201).json(withAdvanceTotals(item));
+  });
+
+  app.patch("/api/fund-advances/:id/settle", requireDevAuth, (req, res) => {
+    const item = fundAdvances.find((row) => row._id === req.params.id && row.status !== "archived");
+    if (!item) return res.status(404).json({ message: "Advance not found" });
+    const current = withAdvanceTotals(item); if (current.outstanding || current.excess) return res.status(400).json({ message: "Balance must be zero before settlement" });
+    item.status = "settled"; res.json(withAdvanceTotals(item));
+  });
+
+  app.delete("/api/fund-advances/:id", requireDevAuth, (req, res) => {
+    const item = fundAdvances.find((row) => row._id === req.params.id);
+    if (!item) return res.status(404).json({ message: "Advance not found" });
+    if (item.expenses.length || item.refunds.length) return res.status(400).json({ message: "Advance with history cannot be archived" });
+    item.status = "archived"; res.json(item);
   });
 
   app.get("/api/activity", requireDevAuth, (_req, res) => {
